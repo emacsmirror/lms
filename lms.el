@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-29 19:11:33 inigo>
+;; Time-stamp: <2017-07-29 19:56:10 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -83,7 +83,7 @@
   :group 'lms)
 
 (defcustom lms-default-player nil
-  "Name of default player. F.e. Squeezebox"
+  "Name of default player.  F.e. Squeezebox."
   :type 'string
   :group 'lms)
 
@@ -118,6 +118,7 @@
 
 ;;;;; Auxiliar internal functions
 (defun split-string-with-max (string delimiter max)
+  "Split STRING by DELIMITER, returning no more than MAX substrings."
   (let* ((tmp (split-string string delimiter))
          (lst (seq-take tmp (1- max))))
     (add-to-list 'lst (string-join (seq-drop tmp (1- max)) delimiter) t)
@@ -159,7 +160,7 @@
 
 ;;;;; Players
 (defun lms-get-players (&optional force-populate)
-  "Populate LMS players."
+  "Return players from internal variable or ask server if FORCE-POPULATE is t."
   (when (and lms--players (not force-load-messages))
     lms--players)
   (let* ((numplayers (string-to-number (lms--send-command-get-response "player count ?")))
@@ -330,7 +331,7 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
   (lms--send-command (format "%s stop" playerid)))
 
 (defun lms-playing-seek (position &optional playerid)
-  "Seek PLAYERID device or default."
+  "Seek to POSITION PLAYERID device or default."
   (interactive)
   (unless playerid
     (setq playerid lms--default-playerid))
