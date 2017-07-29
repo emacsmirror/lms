@@ -1,0 +1,89 @@
+#+TITLE: lms.el Documentation
+#+AUTHOR: Iñigo Serna
+#+DATE: Time-stamp: <2017-07-29 17:38:50 inigo>
+
+* Introduction
+This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
+Released under GPL version 3 license or later.
+
+It requires emacs version 25 or higher.
+
+Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
+From there, you could read complete documentation after pressing *h* key.
+
+Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://bitbucket.com/inigoserna/lms.el][BitBucket code repository]] as well.
+
+* Features
+This is Squeezebox controller, i.e. a program which can handle your local music library.
+
+Some of the features:
+- Display song: title, artist, album, year, cover…
+- Play, pause, stop, select next / previous song
+- Control players: select player, power on/off, volume, repeat and shuffle modes
+- Playlist control: list, select song, delete track, clear
+- Show track information and change rating
+
+It is not aimed to be a complete controller, as it can't - and won't - manage external sources such us BBC, Deezer, Pandora, Spotify, or TuneIn Radio.
+
+* Configuration
+There are some parameters you could customize:
+|--------------------+---------------------------------------+----------|
+| Parameter          | Description                           | Default  |
+|--------------------+---------------------------------------+----------|
+| lms-hostname       | Logitech Media Server hostname or ip  | hostname |
+| lms-telnet-port    | Logitech Media Server telnet port     | 9090     |
+| lms-html-port      | Logitech Media Server www port        | 80       |
+| lms-username       | Logitech Media Server username or nil | nil      |
+| lms-password       | Logitech Media Server password or nil | nil      |
+| lms-default-player | Name of default player                | nil      |
+| lms-ui-cover-width | Cover image width                     | 400      |
+|--------------------+---------------------------------------+----------|
+Notes:
+(1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
+(2) It's recomendable not to change *lms-ui-cover-width*
+
+* Playing now
+Main window showing information about current track and player status.
+** Key bindings
+|------------+--------------------------------|
+| Ctrl-w     | change player power state      |
+| Ctrl-p     | select player                  |
+| Ctrl-r     | change track rating            |
+| <space>    | toggle play/pause              |
+| P          | play                           |
+| S          | stop playing                   |
+| p, <left>  | play previous song in playlist |
+| n, <right> | play next song in playlist     |
+| m          | toggle mute volume             |
+| +, =       | volume up +5                   |
+| -          | volume down -5                 |
+| r          | cycle repeat mode              |
+| s          | cycle shuffle mode             |
+| g          | update window contents         |
+| i          | display track information      |
+| l          | display playlist               |
+| h, ?       | show this documentation        |
+| q          | quit LMS                       |
+|------------+--------------------------------|
+
+* Track information
+Display track information.
+** Key bindings
+|------+-------------------------|
+| C-r  | change track rating     |
+| h, ? | show this documentation |
+| q    | close window            |
+|------+-------------------------|
+
+* Playlist
+Playlist view.
+** Key bindings
+|--------------+----------------------------|
+| <up>, <down> | move cursor                |
+| <enter>      | play track                 |
+| i            | show track information     |
+| d            | remove track from playlist |
+| c            | clear playlist             |
+| h, ?         | show this documentation    |
+| q            | close window               |
+|--------------+----------------------------|
