@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-29 17:43:20 inigo>
+;; Time-stamp: <2017-07-29 19:11:33 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -39,9 +39,6 @@
 ;;; TODO:
 ;; . search: click (artist, album, year), search by, random by
 ;; . publish: melpa, blog entry, lms forum
-;;
-;; Bugs:
-;; . lms-ui-playing-now crashes when no tracks on playlist
 ;;
 ;; Doubts:
 ;; . image with some text lines at right
@@ -584,7 +581,12 @@ Playlist view.
   "LMS documentation.")
 
 ;;;;; Module internal variables
-; (defvars)
+(defvar lms--current-trackid nil
+  "Temporal trackid variable while in 'playing now' view.")
+
+(defvar lms-ui-pl-tracks nil
+  "Temporal tracks list variable in 'playlist' view.")
+
 
 ;;;;; Auxiliar UI functions
 (defun lms--retrieve-url (url)
@@ -704,19 +706,19 @@ Press 'h' or '?' keys for complete documentation")
          (title (decode-coding-string (or (plist-get st 'title) "No title") 'utf-8))
          (artist (decode-coding-string (or (plist-get st 'artist) "No artist") 'utf-8))
          (album (decode-coding-string (or (plist-get st 'album) "No album") 'utf-8))
-         (year (plist-get st 'year))
-         (tracknum (plist-get st 'tracknum))
-         (duration (string-to-number (plist-get st 'duration)))
+         (year (or (plist-get st 'year) "0000"))
+         (tracknum (or (plist-get st 'tracknum) "0"))
+         (duration (string-to-number (or (plist-get st 'duration) "0")))
          (time (string-to-number (or (plist-get st 'time) "0")))
-         (rating (string-to-number (plist-get st 'rating)))
-         (playlist_idx (1+ (string-to-number (plist-get st 'playlist_cur_index))))
-         (playlist_tot (string-to-number (plist-get st 'playlist_tracks)))
-         (playername (decode-coding-string (plist-get st 'player_name) 'utf-8))
+         (rating (string-to-number (or (plist-get st 'rating) "0")))
+         (playlist_idx (1+ (string-to-number (or (plist-get st 'playlist_cur_index) "0"))))
+         (playlist_tot (string-to-number (or (plist-get st 'playlist_tracks) "0")))
+         (playername (decode-coding-string (or (plist-get st 'player_name) "No player") 'utf-8))
          (powerp (string= (plist-get st 'power) "1"))
-         (volume (string-to-number (plist-get st 'mixer\ volume)))
-         (mode (plist-get st 'mode))
-         (repeat (plist-get st 'playlist\ repeat))
-         (shuffle (plist-get st 'playlist\ shuffle)))
+         (volume (string-to-number (or (plist-get st 'mixer\ volume) "0")))
+         (mode (or (plist-get st 'mode) "stop"))
+         (repeat (or (plist-get st 'playlist\ repeat) "0"))
+         (shuffle (or (plist-get st 'playlist\ shuffle) "0")))
     (switch-to-buffer "*LMS Playing Now*")
     (lms-ui-playing-now-mode)
     (setq-local buffer-read-only nil)
@@ -805,7 +807,8 @@ Press 'h' or '?' keys for complete documentation")
 (defun lms-ui-playing-now-show-track-info ()
   "Open track information buffer."
   (interactive)
-  (lms-ui-track-info lms--current-trackid))
+  (when lms--current-trackid
+    (lms-ui-track-info lms--current-trackid)))
 
 (defun lms-ui-playing-now-show-playlist ()
   "Open playlits buffer."
@@ -843,47 +846,53 @@ Press 'h' or '?' keys for complete documentation")
 (defun lms-ui-playing-now-change-rating ()
   "Change rating of current track."
   (interactive)
-  (let* ((lst '("0" "10" "20" "30" "40" "50" "60" "70" "80" "90" "100"))
-         (rating (ido-completing-read "Rating: " lst)))
-    (when (and rating (seq-contains lst rating))
-      (lms-set-track-rating lms--current-trackid rating)
-      (sleep-for .2)
-      (lms-ui-playing-now-refresh))))
+  (when lms--current-trackid
+    (let* ((lst '("0" "10" "20" "30" "40" "50" "60" "70" "80" "90" "100"))
+           (rating (ido-completing-read "Rating: " lst)))
+      (when (and rating (seq-contains lst rating))
+        (lms-set-track-rating lms--current-trackid rating)
+        (sleep-for .2)
+        (lms-ui-playing-now-refresh)))))
 
 (defun lms-ui-playing-now-play-pause ()
   "Toggle play/pause."
   (interactive)
-  (lms-playing-toggle-pause)
-  (sleep-for .2)
-  (lms-ui-playing-now-refresh))
+  (when lms--current-trackid
+    (lms-playing-toggle-pause)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-play ()
   "Play."
   (interactive)
-  (lms-playing-play)
-  (sleep-for .2)
-  (lms-ui-playing-now-refresh))
+  (when lms--current-trackid
+    (lms-playing-play)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-stop ()
   "Stop."
   (interactive)
-  (lms-playing-stop)
-  (sleep-for .2)
-  (lms-ui-playing-now-refresh))
+  (when lms--current-trackid
+    (lms-playing-stop)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-next ()
   "Jump to next song."
   (interactive)
-  (lms-playlist-next)
-  (sleep-for .2)
-  (lms-ui-playing-now-refresh))
+  (when lms--current-trackid
+    (lms-playlist-next)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-prev ()
   "Jump to previous song."
   (interactive)
-  (lms-playlist-prev)
-  (sleep-for .2)
-  (lms-ui-playing-now-refresh))
+  (when lms--current-trackid
+    (lms-playlist-prev)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-volume-up ()
   "Volume up."
@@ -916,7 +925,6 @@ Press 'h' or '?' keys for complete documentation")
     (lms-playlist-set-shuffle (number-to-string shuffle)))
   (sleep-for .2)
   (lms-ui-playing-now-refresh))
-
 
 (defun lms-ui-playing-now-volume-mute ()
   "Volume up."
@@ -1015,7 +1023,7 @@ Press 'h' or '?' keys for complete documentation."
   (let ((tracks (lms-get-playlist)))
     (setq tabulated-list-entries
           (mapcar (lambda (x)
-                    (let ((index(plist-get x 'index))
+                    (let ((index (plist-get x 'index))
                           (playingp (plist-get x 'current))
                           (title (plist-get x 'title))
                           (artist (plist-get x 'artist))
@@ -1043,25 +1051,28 @@ Press 'h' or '?' keys for complete documentation."
 (defun lms-ui-playlist-play ()
   "Play selected track."
   (interactive)
-  (lms-playlist-play-track (tabulated-list-get-id))
-  (sleep-for 0.5)
-  (lms-ui-playlist))
+  (when (tabulated-list-get-id)
+    (lms-playlist-play-track (tabulated-list-get-id))
+    (sleep-for 0.5)
+    (lms-ui-playlist)))
 
 (defun lms-ui-playlist-delete-track ()
   "Remove selected track from playlist."
   (interactive)
-  (lms-playlist-delete-track (tabulated-list-get-id))
-  (lms-ui-playlist))
+  (when (tabulated-list-get-id)
+    (lms-playlist-delete-track (tabulated-list-get-id))
+    (lms-ui-playlist)))
 
 (defun lms-ui-playlist-track-info ()
   "Open track information buffer for selected track."
   (interactive)
-  (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms-ui-pl-tracks) 'id)))
+  (when (tabulated-list-get-id)
+    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms-ui-pl-tracks) 'id))))
 
 (defun lms-ui-playlist-clear ()
   "Clear playlist."
   (interactive)
-  (when (y-or-n-p "Clear playlist? ")
+  (when (and (tabulated-list-get-id) (y-or-n-p "Clear playlist? "))
     (lms-playlist-clear)
     (lms-ui-playlist)))
 
