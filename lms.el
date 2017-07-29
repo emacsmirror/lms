@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-29 19:56:10 inigo>
+;; Time-stamp: <2017-07-29 20:05:08 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -223,7 +223,7 @@
   (set-process-filter lms--process 'lms--handle-server-reply)
   (set-process-sentinel lms--process 'lms--sentinel-function)
   (when (and lms-username lms-password)
-    (lms-send-command (format "login %s %s" lms-username lms-password)))
+    (lms--send-command (format "login %s %s" lms-username lms-password)))
   (setq lms--players (lms-get-players t))
   (setq lms--default-playerid (lms-get-playerid-from-name
                                (if (seq-some (lambda (x) (string= x lms-default-player)) (lms-get-players-name))
@@ -585,7 +585,10 @@ Playlist view.
 (defvar lms--current-trackid nil
   "Temporal trackid variable while in 'playing now' view.")
 
-(defvar lms-ui-pl-tracks nil
+(defvar lms--ui-track-info-trackid nil
+  "Temporal trackid variable while in 'track info' view.")
+
+(defvar lms--ui-pl-tracks nil
   "Temporal tracks list variable in 'playlist' view.")
 
 
@@ -962,7 +965,7 @@ Press 'h' or '?' keys for complete documentation")
     (switch-to-buffer "*LMS Track Information*")
     (lms-ui-track-info-mode)
     (setq-local buffer-read-only nil)
-    (setq-local lms-ui-track-info-trackid (plist-get trackinfo 'id))
+    (setq-local lms--ui-track-info-trackid (plist-get trackinfo 'id))
     (erase-buffer)
     (insert (propertize "Track information" 'face '(variable-pitch (:height 1.5 :weight bold :underline t))))
     (insert "\n\n")
@@ -984,9 +987,9 @@ Press 'h' or '?' keys for complete documentation")
   (let* ((lst '("0" "10" "20" "30" "40" "50" "60" "70" "80" "90" "100"))
          (rating (ido-completing-read "Rating: " lst)))
     (when (and rating (seq-contains lst rating))
-      (lms-set-track-rating lms-ui-track-info-trackid rating)
+      (lms-set-track-rating lms--ui-track-info-trackid rating)
       (sleep-for .2)
-      (lms-ui-track-info lms-ui-track-info-trackid))))
+      (lms-ui-track-info lms--ui-track-info-trackid))))
 
 ;;;;; Playlist
 (defvar lms-ui-playlist-mode-map
@@ -1043,7 +1046,7 @@ Press 'h' or '?' keys for complete documentation."
                              (propertize (lms--format-time time)
                                          'face '())))))
                   tracks))
-    (setq-local lms-ui-pl-tracks tracks))
+    (setq-local lms--ui-pl-tracks tracks))
   (tabulated-list-print t)
   (goto-char (point-min))
   (hl-line-mode 1)
@@ -1068,7 +1071,7 @@ Press 'h' or '?' keys for complete documentation."
   "Open track information buffer for selected track."
   (interactive)
   (when (tabulated-list-get-id)
-    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms-ui-pl-tracks) 'id))))
+    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))))
 
 (defun lms-ui-playlist-clear ()
   "Clear playlist."
@@ -1081,17 +1084,3 @@ Press 'h' or '?' keys for complete documentation."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (provide 'lms)
 ;;; lms.el ends here
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(progn
-  (setq lms-hostname "192.168.2.10"
-        lms-html-port 9002
-        lms-default-player "Squeezebox")
-  (global-set-key '[f10]     'lms-ui)
-  (define-key lms-ui-playing-now-mode-map (kbd "q") '(lambda () (interactive)
-                                                       (lms-ui-playing-now-quit)
-                                                       (when (and
-                                                              (> (length (visible-frame-list)) 2)
-                                                              (not (string= (frame-parameter nil 'name) "emacsclient0")))
-                                                         (delete-frame)))))
