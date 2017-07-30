@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-29 20:05:08 inigo>
+;; Time-stamp: <2017-07-30 19:59:04 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -218,7 +218,7 @@
                                               lms-hostname lms-telnet-port))
     (error nil))
   (unless (processp lms--process)
-    (error "ERROR: Can't connect to LMS server. Please verify you have customized hostname, port and credentials.\n."))
+    (error "ERROR: Can't connect to LMS server. Please verify you have customized hostname, port and credentials."))
   (set-process-coding-system lms--process 'utf-8 'utf-8)
   (set-process-filter lms--process 'lms--handle-server-reply)
   (set-process-sentinel lms--process 'lms--sentinel-function)
@@ -408,32 +408,32 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
   (unless playerid
     (setq playerid lms--default-playerid))
   (let ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
-      (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
-      (buf (lms--send-command-get-response (format "%s status 0 100 tags:ald" playerid)))
-      lst-id lst-title lst-artist lst-album lst-duration lst track)
-  (dolist (e (split-string buf))
-    (when (string-prefix-p "id" e)
-      (push (cadr (split-string e "%3A")) lst-id))
-    (when (string-prefix-p "title" e)
-      (push (cadr (split-string e "%3A")) lst-title))
-    (when (string-prefix-p "artist" e)
-      (push (cadr (split-string e "%3A")) lst-artist))
-    (when (string-prefix-p "album" e)
-      (push (cadr (split-string e "%3A")) lst-album))
-    (when (string-prefix-p "duration" e)
-      (push (cadr (split-string e "%3A")) lst-duration)))
-  (dotimes (i tot)
-    (setq track nil)
-    (setq track (plist-put track 'index (- tot i 1)))
-    (setq track (plist-put track 'id (pop lst-id)))
-    (setq track (plist-put track 'title (pop lst-title)))
-    (setq track (plist-put track 'artist (pop lst-artist)))
-    (setq track (plist-put track 'album (pop lst-album)))
-    (setq track (plist-put track 'duration (string-to-number (pop lst-duration))))
-    (setq track (plist-put track 'current nil))
-    (push track lst))
-  (plist-put (nth idx lst) 'current t)
-  lst))
+        (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
+        (buf (lms--send-command-get-response (format "%s status 0 100 tags:ald" playerid)))
+        lst-id lst-title lst-artist lst-album lst-duration lst track)
+    (dolist (e (split-string buf))
+      (when (string-prefix-p "id" e)
+        (push (cadr (split-string e "%3A")) lst-id))
+      (when (string-prefix-p "title" e)
+        (push (cadr (split-string e "%3A")) lst-title))
+      (when (string-prefix-p "artist" e)
+        (push (cadr (split-string e "%3A")) lst-artist))
+      (when (string-prefix-p "album" e)
+        (push (cadr (split-string e "%3A")) lst-album))
+      (when (string-prefix-p "duration" e)
+        (push (cadr (split-string e "%3A")) lst-duration)))
+    (dotimes (i tot)
+      (setq track nil)
+      (setq track (plist-put track 'index (- tot i 1)))
+      (setq track (plist-put track 'id (pop lst-id)))
+      (setq track (plist-put track 'title (pop lst-title)))
+      (setq track (plist-put track 'artist (pop lst-artist)))
+      (setq track (plist-put track 'album (pop lst-album)))
+      (setq track (plist-put track 'duration (string-to-number (pop lst-duration))))
+      (setq track (plist-put track 'current nil))
+      (push track lst))
+    (plist-put (nth idx lst) 'current t)
+    lst))
 
 ;;;;; Misc
 (defun lms--get-status (&optional playerid)
