@@ -1,11 +1,12 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-30 19:59:04 inigo>
+;; Time-stamp: <2017-07-30 22:16:15 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
 ;; Version: 0.6
+;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
 ;; This file is not part of GNU Emacs.
@@ -166,19 +167,19 @@
   (let* ((numplayers (string-to-number (lms--send-command-get-response "player count ?")))
          (cmd (format "players 0 %d" numplayers))
          (data (split-string (lms--send-command-get-response cmd)))
-         players player-plist)
+         players player)
     (unless (string= (car data) (url-hexify-string (format "count:%d" numplayers)))
       (error "LMS: undefined number of players"))
     (dolist (l (cdr data))
       (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
              (k (intern (url-unhex-string (car pair))))
              (v (url-unhex-string (cadr pair))))
-        (when (and player-plist (string= (car pair) "playerindex"))
-          (push player-plist players)
-          (setq player-plist nil))
-        (setq player-plist (plist-put player-plist k v))))
-    (when player-plist
-      (push player-plist players))
+        (when (and player (string= (car pair) "playerindex"))
+          (push player players)
+          (setq player nil))
+        (setq player (plist-put player k v))))
+    (when player
+      (push player players))
     (reverse players)))
 
 (defun lms-get-players-name ()
@@ -213,10 +214,9 @@
   (interactive)
   (setq lms--results nil)
   (lms-quit)
-  (condition-case exc
-      (setq lms--process (open-network-stream lms-process-name lms-buffer-name
-                                              lms-hostname lms-telnet-port))
-    (error nil))
+  (ignore-errors
+    (setq lms--process (open-network-stream lms-process-name lms-buffer-name
+                                            lms-hostname lms-telnet-port)))
   (unless (processp lms--process)
     (error "ERROR: Can't connect to LMS server. Please verify you have customized hostname, port and credentials."))
   (set-process-coding-system lms--process 'utf-8 'utf-8)
@@ -410,7 +410,7 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
   (let ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
         (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
         (buf (lms--send-command-get-response (format "%s status 0 100 tags:ald" playerid)))
-        lst-id lst-title lst-artist lst-album lst-duration lst track)
+        lst-id lst-title lst-artist lst-album lst-duration lst)
     (dolist (e (split-string buf))
       (when (string-prefix-p "id" e)
         (push (cadr (split-string e "%3A")) lst-id))
@@ -423,15 +423,10 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
       (when (string-prefix-p "duration" e)
         (push (cadr (split-string e "%3A")) lst-duration)))
     (dotimes (i tot)
-      (setq track nil)
-      (setq track (plist-put track 'index (- tot i 1)))
-      (setq track (plist-put track 'id (pop lst-id)))
-      (setq track (plist-put track 'title (pop lst-title)))
-      (setq track (plist-put track 'artist (pop lst-artist)))
-      (setq track (plist-put track 'album (pop lst-album)))
-      (setq track (plist-put track 'duration (string-to-number (pop lst-duration))))
-      (setq track (plist-put track 'current nil))
-      (push track lst))
+      (push (list 'index (- tot i 1) 'id (pop lst-id) 'title (pop lst-title)
+                  'artist (pop lst-artist) 'album (pop lst-album)
+                  'duration (string-to-number (pop lst-duration)) 'current nil)
+            lst))
     (plist-put (nth idx lst) 'current t)
     lst))
 
@@ -450,19 +445,19 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
 
 (defun lms-get-current-track ()
   "Get current track as a plist."
-  (let* ((st (lms--get-status))
-         track)
-    (setq track (plist-put track 'id (plist-get st 'id)))
-    (setq track (plist-put track 'artist (plist-get st 'artist)))
-    (setq track (plist-put track 'title (plist-get st 'title)))
-    (setq track (plist-put track 'album (plist-get st 'album)))
-    (setq track (plist-put track 'year (plist-get st 'year)))
-    (setq track (plist-put track 'tracknum (plist-get st 'tracknum)))
-    (setq track (plist-put track 'duration (string-to-number (plist-get st 'duration)))) ; seconds
-    (setq track (plist-put track 'time (string-to-number (plist-get st 'time))))         ; seconds
-    (setq track (plist-put track 'rating (string-to-number (plist-get st 'rating))))     ; 0-100
-    (setq track (plist-put track 'playlist_idx (string-to-number (plist-get st 'playlist_cur_index)))) ; 0-based
-    (setq track (plist-put track 'playlist_tot (string-to-number (plist-get st 'playlist_tracks))))))
+  (let ((st (lms--get-status)))
+    (list
+     'id (plist-get st 'id)
+     'artist (plist-get st 'artist)
+     'title (plist-get st 'title)
+     'album (plist-get st 'album)
+     'year (plist-get st 'year)
+     'tracknum (plist-get st 'tracknum)
+     'duration (string-to-number (plist-get st 'duration)) ; seconds
+     'time (string-to-number (plist-get st 'time))         ; seconds
+     'rating (string-to-number (plist-get st 'rating))     ; 0-100
+     'playlist_idx (string-to-number (plist-get st 'playlist_cur_index)) ; 0-based
+     'playlist_tot (string-to-number (plist-get st 'playlist_tracks)))))
 
 (defun lms-get-track-info (trackid)
   "Get track TRACKID information as a plist."
