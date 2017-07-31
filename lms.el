@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-30 22:16:15 inigo>
+;; Time-stamp: <2017-07-31 16:25:42 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -28,6 +28,9 @@
 
 ;; `lms.el' is a frontend for Squeezebox / Logitech Media Server.
 ;;
+;; More information on what a "squeezebox controller" is at
+;; https://inigo.katxi.org/blog/2017/07/31/lms_el.html
+;;
 ;; Quick instructions: customize some basic parameters `lms-hostname',
 ;; `lms-telnet-port', `lms-html-port', `lms-username', `lms-password'
 ;; and run it with `lms-ui'.
@@ -38,7 +41,13 @@
 ;; 2017/07/29 Initial version.
 
 ;;; TODO:
-;; . search: click (artist, album, year), search by, random by
+;; . virtual library: library_id
+;; . search:
+;;   . click (artist, album, year)
+;;   . b: browse (artist, album, year, genre)
+;;   . /, C-s: search by
+;;   . random album
+;;   . r: random mix by (song, album, artist, year, genre)
 ;; . publish: melpa, blog entry, lms forum
 ;;
 ;; Doubts:
@@ -493,6 +502,8 @@ This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media 
 Released under GPL version 3 license or later.
 
 It requires emacs version 25 or higher.
+
+More information on what a *squeezebox controller* is at [[this blog post][https://inigo.katxi.org/blog/2017/07/31/lms_el.html]].
 
 Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
 From there, you could read complete documentation after pressing *h* key.
