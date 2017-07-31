@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-31 16:54:23 inigo>
+;; Time-stamp: <2017-07-31 21:15:03 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -125,6 +125,9 @@
 (defvar lms--default-playerid nil
   "Internal default player playerid.")
 
+(defvar lms--temp nil
+  "Internal string buffer for communications with LMS server.")
+
 
 ;;;;; Auxiliar internal functions
 (defun split-string-with-max (string delimiter max)
@@ -136,7 +139,10 @@
 
 (defun lms--handle-server-reply (process content)
   "Gets invoked whenever the server PROCESS sends data CONTENT to the client."
-  (push (string-trim content) lms--results))
+  (setq lms--temp (concat lms--temp content))
+  (when (string= (substring lms--temp -1) "\n")
+    (push (string-trim lms--temp) lms--results)
+    (setq lms--temp nil)))
 
 (defun lms--sentinel-function (process event)
   "Gets called when the status of the network connection PROCESS change with EVENT."
