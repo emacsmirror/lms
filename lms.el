@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-08-03 20:21:36 inigo>
+;; Time-stamp: <2017-08-04 00:29:36 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -422,8 +422,8 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
     (setq playerid lms--default-playerid))
   (let ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
         (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
-        (buf (lms--send-command-get-response (format "%s status 0 100 tags:ald" playerid)))
-        lst-id lst-title lst-artist lst-album lst-duration lst)
+        (buf (lms--send-command-get-response (format "%s status 0 100 tags:alyd" playerid)))
+        lst-id lst-title lst-artist lst-album lst-year lst-duration lst)
     (dolist (e (split-string buf))
       (when (string-prefix-p "id" e)
         (push (cadr (split-string e "%3A")) lst-id))
@@ -433,11 +433,13 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
         (push (cadr (split-string e "%3A")) lst-artist))
       (when (string-prefix-p "album" e)
         (push (cadr (split-string e "%3A")) lst-album))
+      (when (string-prefix-p "year" e)
+        (push (cadr (split-string e "%3A")) lst-year))
       (when (string-prefix-p "duration" e)
         (push (cadr (split-string e "%3A")) lst-duration)))
     (dotimes (i tot)
       (push (list 'index (- tot i 1) 'id (pop lst-id) 'title (pop lst-title)
-                  'artist (pop lst-artist) 'album (pop lst-album)
+                  'artist (pop lst-artist) 'album (pop lst-album) 'year (pop lst-year)
                   'duration (string-to-number (pop lst-duration)) 'current nil)
             lst))
     (plist-put (nth idx lst) 'current t)
@@ -603,6 +605,10 @@ Playlist view.
 
 
 ;;;;; Auxiliar UI functions
+(defun lms--unhex-encode (str)
+  "Unhexify and encode STR in utf-8."
+   (decode-coding-string (url-unhex-string str) 'utf-8))
+
 (defun lms--retrieve-url (url)
   "Retrieve data file from URL."
   (with-current-buffer (url-retrieve-synchronously url)
@@ -1020,8 +1026,9 @@ Press 'h' or '?' keys for complete documentation")
   "Major mode for LMS Playlist buffer.
 Press 'h' or '?' keys for complete documentation."
   (setq tabulated-list-format [(" "        1  nil :right-align nil)
-                               ("Title"   35    t :right-align nil)
-                               ("Artist"  25    t :right-align nil)
+                               ("Title"   32    t :right-align nil)
+                               ("Artist"  24    t :right-align nil)
+                               ("Year"     4    t :right-align nil)
                                ("Album"   25    t :right-align nil)
                                ("Time"     0    t :right-align nil)])
   (setq tabulated-list-padding 0)
@@ -1041,11 +1048,13 @@ Press 'h' or '?' keys for complete documentation."
                           (vector
                            (propertize (if (plist-get x 'current) "♫" " ")
                                        'face '(:weight bold))
-                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'title)) 'utf-8)
+                           (propertize (lms--unhex-encode (plist-get x 'title))
                                        'face '(:slant italic))
-                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'artist)) 'utf-8)
+                           (propertize (lms--unhex-encode (plist-get x 'artist))
                                        'face '(:weight bold))
-                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'album)) 'utf-8)
+                           (propertize (or (plist-get x 'year) "")
+                                       'face '())
+                           (propertize (lms--unhex-encode (plist-get x 'album))
                                        'face '())
                            (propertize (lms--format-time (plist-get x 'duration))
                                        'face '()))))
