@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-07-31 21:15:03 inigo>
+;; Time-stamp: <2017-08-03 20:21:36 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -48,10 +48,8 @@
 ;;   . /, C-s: search by
 ;;   . random album
 ;;   . r: random mix by (song, album, artist, year, genre)
-;; . publish: melpa, blog entry, lms forum
 ;;
 ;; Doubts:
-;; . image with some text lines at right
 ;; . mode key map with no inherited key bindings
 
 
@@ -735,7 +733,7 @@ Press 'h' or '?' keys for complete documentation")
          (mode (or (plist-get st 'mode) "stop"))
          (repeat (or (plist-get st 'playlist\ repeat) "0"))
          (shuffle (or (plist-get st 'playlist\ shuffle) "0")))
-    (switch-to-buffer "*LMS Playing Now*")
+    (switch-to-buffer "*LMS: Playing Now*")
     (lms-ui-playing-now-mode)
     (setq-local buffer-read-only nil)
     (erase-buffer)
@@ -803,13 +801,13 @@ Press 'h' or '?' keys for complete documentation")
   "Quit LMS interface ans close connection."
   (interactive)
   (setq lms-default-player (lms-get-playername-from-id lms--default-playerid))
-  (kill-buffer "*LMS Playing Now*")
+  (kill-buffer "*LMS: Playing Now*")
   (lms-quit))
 
 (defun lms-ui-playing-now-help ()
   "Show LMS help."
   (interactive)
-  (switch-to-buffer "*LMS Help*")
+  (switch-to-buffer "*LMS: Help*")
   (erase-buffer)
   (insert lms-ui-docs)
   (goto-char (point-min))
@@ -956,7 +954,7 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "h")    'lms-ui-playing-now-help)
     (define-key map (kbd "?")    'lms-ui-playing-now-help)
     (define-key map (kbd "q")    '(lambda () (interactive)
-                                    (kill-buffer "*LMS Track Information*")))
+                                    (kill-buffer "*LMS: Track Information*")))
     map)
   "Local keymap for `lms-ui-track-info-mode' buffers.")
 
@@ -974,7 +972,7 @@ Press 'h' or '?' keys for complete documentation")
     (setq trackinfo (plist-put trackinfo 'duration (lms--format-time (string-to-number (plist-get trackinfo 'duration)))))
     (setq trackinfo (plist-put trackinfo 'rating (lms--format-rating (string-to-number (plist-get trackinfo 'rating)))))
     (setq trackinfo (plist-put trackinfo 'filesize (lms--format-filesize (string-to-number (plist-get trackinfo 'filesize)))))
-    (switch-to-buffer "*LMS Track Information*")
+    (switch-to-buffer "*LMS: Track Information*")
     (lms-ui-track-info-mode)
     (setq-local buffer-read-only nil)
     (setq-local lms--ui-track-info-trackid (plist-get trackinfo 'id))
@@ -1014,7 +1012,7 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "h")      'lms-ui-playing-now-help)
     (define-key map (kbd "?")      'lms-ui-playing-now-help)
     (define-key map (kbd "q")      '(lambda () (interactive)
-                                      (kill-buffer "*LMS Playlist*")))
+                                      (kill-buffer "*LMS: Playlist*")))
     map)
   "Local keymap for `lms-ui-playlist-mode' buffers.")
 
@@ -1025,44 +1023,40 @@ Press 'h' or '?' keys for complete documentation."
                                ("Title"   35    t :right-align nil)
                                ("Artist"  25    t :right-align nil)
                                ("Album"   25    t :right-align nil)
-                               ("Time"     0  nil :right-align nil)])
+                               ("Time"     0    t :right-align nil)])
   (setq tabulated-list-padding 0)
   (tabulated-list-init-header))
 
 (defun lms-ui-playlist ()
   "Playlist."
   (interactive)
-  (switch-to-buffer "*LMS Playlist*" nil)
+  (switch-to-buffer "*LMS: Playlist*" nil)
   (setq-local buffer-read-only nil)
   (erase-buffer)
   (lms-ui-playlist-mode)
   (let ((tracks (lms-get-playlist)))
     (setq tabulated-list-entries
           (mapcar (lambda (x)
-                    (let ((index (plist-get x 'index))
-                          (playingp (plist-get x 'current))
-                          (title (plist-get x 'title))
-                          (artist (plist-get x 'artist))
-                          (album (plist-get x 'album))
-                          (time (plist-get x 'duration)))
-                      (list index
-                            (vector
-                             (propertize (if playingp "♫" " ")
-                                         'face '(:weight bold))
-                             (propertize (decode-coding-string (url-unhex-string title) 'utf-8)
-                                         'face '(:slant italic))
-                             (propertize (decode-coding-string (url-unhex-string artist) 'utf-8)
-                                         'face '(:weight bold))
-                             (propertize (decode-coding-string (url-unhex-string album) 'utf-8)
-                                         'face '())
-                             (propertize (lms--format-time time)
-                                         'face '())))))
+                    (list (plist-get x 'index)
+                          (vector
+                           (propertize (if (plist-get x 'current) "♫" " ")
+                                       'face '(:weight bold))
+                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'title)) 'utf-8)
+                                       'face '(:slant italic))
+                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'artist)) 'utf-8)
+                                       'face '(:weight bold))
+                           (propertize (decode-coding-string (url-unhex-string (plist-get x 'album)) 'utf-8)
+                                       'face '())
+                           (propertize (lms--format-time (plist-get x 'duration))
+                                       'face '()))))
                   tracks))
     (setq-local lms--ui-pl-tracks tracks))
   (tabulated-list-print t)
   (goto-char (point-min))
   (hl-line-mode 1)
-  (setq-local cursor-type nil))
+  (setq-local cursor-type nil)
+  (search-forward "♫" nil t)
+  (move-beginning-of-line nil))
 
 (defun lms-ui-playlist-play ()
   "Play selected track."
