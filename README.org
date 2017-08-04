@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2017-07-31 16:53:59 inigo>
+#+DATE: Time-stamp: <2017-08-04 15:57:00 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -84,7 +84,7 @@ Playlist view.
 | <up>, <down> | move cursor                |
 | <enter>      | play track                 |
 | i            | show track information     |
-| d            | remove track from playlist |
+| d, <delete>  | remove track from playlist |
 | c            | clear playlist             |
 | h, ?         | show this documentation    |
 | q            | close window               |

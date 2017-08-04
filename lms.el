@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-08-04 00:29:36 inigo>
+;; Time-stamp: <2017-08-04 18:21:55 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -161,7 +161,11 @@
   (lms--send-command cmd)
   (when (string-suffix-p "?" cmd)
     (setq cmd (substring cmd 0 -1)))
+  ;; LMS returns : char encoded
   (setq cmd (replace-regexp-in-string ":" "%3A" cmd))
+  ;; LMS returns !'() chars not encoded
+  (dolist (x '(("%21" . "!") ("%27" . "'") ("%28" . "(") ("%29" . ")")))
+    (setq cmd (replace-regexp-in-string (car x) (cdr x) cmd)))
   (let* ((continue t)
          data)
     (while continue
@@ -422,8 +426,8 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
     (setq playerid lms--default-playerid))
   (let ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
         (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
-        (buf (lms--send-command-get-response (format "%s status 0 100 tags:alyd" playerid)))
-        lst-id lst-title lst-artist lst-album lst-year lst-duration lst)
+        (buf (lms--send-command-get-response (format "%s status 0 1000 tags:alytd" playerid)))
+        lst-id lst-title lst-artist lst-album lst-year lst-tracknum lst-duration lst)
     (dolist (e (split-string buf))
       (when (string-prefix-p "id" e)
         (push (cadr (split-string e "%3A")) lst-id))
@@ -435,11 +439,14 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
         (push (cadr (split-string e "%3A")) lst-album))
       (when (string-prefix-p "year" e)
         (push (cadr (split-string e "%3A")) lst-year))
+      (when (string-prefix-p "tracknum" e)
+        (push (cadr (split-string e "%3A")) lst-tracknum))
       (when (string-prefix-p "duration" e)
         (push (cadr (split-string e "%3A")) lst-duration)))
     (dotimes (i tot)
       (push (list 'index (- tot i 1) 'id (pop lst-id) 'title (pop lst-title)
-                  'artist (pop lst-artist) 'album (pop lst-album) 'year (pop lst-year)
+                  'artist (pop lst-artist) 'album (pop lst-album)
+                  'year (pop lst-year) 'tracknum (pop lst-tracknum)
                   'duration (string-to-number (pop lst-duration)) 'current nil)
             lst))
     (plist-put (nth idx lst) 'current t)
@@ -585,7 +592,7 @@ Playlist view.
 | <up>, <down> | move cursor                |
 | <enter>      | play track                 |
 | i            | show track information     |
-| d            | remove track from playlist |
+| d, <delete>  | remove track from playlist |
 | c            | clear playlist             |
 | h, ?         | show this documentation    |
 | q            | close window               |
@@ -1011,14 +1018,15 @@ Press 'h' or '?' keys for complete documentation")
 (defvar lms-ui-playlist-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
-    (define-key map (kbd "RET")    'lms-ui-playlist-play)
-    (define-key map (kbd "i")      'lms-ui-playlist-track-info)
-    (define-key map (kbd "d")      'lms-ui-playlist-delete-track)
-    (define-key map (kbd "c")      'lms-ui-playlist-clear)
-    (define-key map (kbd "h")      'lms-ui-playing-now-help)
-    (define-key map (kbd "?")      'lms-ui-playing-now-help)
-    (define-key map (kbd "q")      '(lambda () (interactive)
-                                      (kill-buffer "*LMS: Playlist*")))
+    (define-key map (kbd "RET")       'lms-ui-playlist-play)
+    (define-key map (kbd "i")         'lms-ui-playlist-track-info)
+    (define-key map (kbd "d")         'lms-ui-playlist-delete-track)
+    (define-key map (kbd "<delete>")  'lms-ui-playlist-delete-track)
+    (define-key map (kbd "c")         'lms-ui-playlist-clear)
+    (define-key map (kbd "h")         'lms-ui-playing-now-help)
+    (define-key map (kbd "?")         'lms-ui-playing-now-help)
+    (define-key map (kbd "q")         '(lambda () (interactive)
+                                         (kill-buffer "*LMS: Playlist*")))
     map)
   "Local keymap for `lms-ui-playlist-mode' buffers.")
 
@@ -1026,10 +1034,11 @@ Press 'h' or '?' keys for complete documentation")
   "Major mode for LMS Playlist buffer.
 Press 'h' or '?' keys for complete documentation."
   (setq tabulated-list-format [(" "        1  nil :right-align nil)
-                               ("Title"   32    t :right-align nil)
-                               ("Artist"  24    t :right-align nil)
+                               ("Title"   28    t :right-align nil)
+                               ("Artist"  21    t :right-align nil)
                                ("Year"     4    t :right-align nil)
-                               ("Album"   25    t :right-align nil)
+                               ("Album"   22    t :right-align nil)
+                               ("Tr#"      3    t :right-align t)
                                ("Time"     0    t :right-align nil)])
   (setq tabulated-list-padding 0)
   (tabulated-list-init-header))
@@ -1055,6 +1064,8 @@ Press 'h' or '?' keys for complete documentation."
                            (propertize (or (plist-get x 'year) "")
                                        'face '())
                            (propertize (lms--unhex-encode (plist-get x 'album))
+                                       'face '())
+                           (propertize (lms--unhex-encode (plist-get x 'tracknum))
                                        'face '())
                            (propertize (lms--format-time (plist-get x 'duration))
                                        'face '()))))
