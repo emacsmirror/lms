@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2017-08-04 15:57:00 inigo>
+#+DATE: Time-stamp: <2018-11-23 23:39:14 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -29,20 +29,22 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|--------------------+---------------------------------------+----------|
-| Parameter          | Description                           | Default  |
-|--------------------+---------------------------------------+----------|
-| lms-hostname       | Logitech Media Server hostname or ip  | hostname |
-| lms-telnet-port    | Logitech Media Server telnet port     | 9090     |
-| lms-html-port      | Logitech Media Server www port        | 80       |
-| lms-username       | Logitech Media Server username or nil | nil      |
-| lms-password       | Logitech Media Server password or nil | nil      |
-| lms-default-player | Name of default player                | nil      |
-| lms-ui-cover-width | Cover image width                     | 400      |
-|--------------------+---------------------------------------+----------|
+|------------------------+---------------------------------------+----------|
+| Parameter              | Description                           | Default  |
+|------------------------+---------------------------------------+----------|
+| lms-hostname           | Logitech Media Server hostname or ip  | hostname |
+| lms-telnet-port        | Logitech Media Server telnet port     | 9090     |
+| lms-html-port          | Logitech Media Server www port        | 80       |
+| lms-username           | Logitech Media Server username or nil | nil      |
+| lms-password           | Logitech Media Server password or nil | nil      |
+| lms-default-player     | Name of default player                | nil      |
+| lms-ui-cover-width     | Cover image width                     | 400      |
+| lms-ui-update-interval | Time in seconds between UI updates    | nil      |
+|------------------------+---------------------------------------+----------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
-(2) It's recomendable not to change *lms-ui-cover-width*
+(2) It's recomendable not to change *lms-ui-cover-width*.
+(3) Note that small values in *lms-ui-update-interval* will freeze your Emacs use while refreshing window.
 
 * Playing now
 Main window showing information about current track and player status.
@@ -86,6 +88,7 @@ Playlist view.
 | i            | show track information     |
 | d, <delete>  | remove track from playlist |
 | c            | clear playlist             |
+| g            | update window contents     |
 | h, ?         | show this documentation    |
 | q            | close window               |
 |--------------+----------------------------|
