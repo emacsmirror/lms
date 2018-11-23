@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2017-08-04 18:21:55 inigo>
+;; Time-stamp: <2018-11-23 23:10:35 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
-;; Version: 0.6
+;; Version: 0.7
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -100,6 +100,12 @@
   :type 'integer
   :group 'lms)
 
+(defcustom lms-ui-update-interval nil
+  "Time in seconds between UI updates.  Default nil, disabled.
+Note that small values will freeze your Emacs use while refreshing window."
+  :type 'integer
+  :group 'lms)
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; Core
@@ -113,6 +119,9 @@
 
 (defvar lms--process nil
   "LMS process.")
+
+(defvar lms--ui-timer nil
+  "LMS UI upgrade timer.")
 
 (defvar lms--results nil
   "Internal LMS communications results list.")
@@ -179,25 +188,25 @@
 ;;;;; Players
 (defun lms-get-players (&optional force-populate)
   "Return players from internal variable or ask server if FORCE-POPULATE is t."
-  (when (and lms--players (not force-load-messages))
-    lms--players)
-  (let* ((numplayers (string-to-number (lms--send-command-get-response "player count ?")))
-         (cmd (format "players 0 %d" numplayers))
-         (data (split-string (lms--send-command-get-response cmd)))
-         players player)
-    (unless (string= (car data) (url-hexify-string (format "count:%d" numplayers)))
-      (error "LMS: undefined number of players"))
-    (dolist (l (cdr data))
-      (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
-             (k (intern (url-unhex-string (car pair))))
-             (v (url-unhex-string (cadr pair))))
-        (when (and player (string= (car pair) "playerindex"))
-          (push player players)
-          (setq player nil))
-        (setq player (plist-put player k v))))
-    (when player
-      (push player players))
-    (reverse players)))
+  (if (and lms--players (not force-load-messages))
+      lms--players
+    (let* ((numplayers (string-to-number (lms--send-command-get-response "player count ?")))
+           (cmd (format "players 0 %d" numplayers))
+           (data (split-string (lms--send-command-get-response cmd)))
+           players player)
+      (unless (string= (car data) (url-hexify-string (format "count:%d" numplayers)))
+        (error "LMS: undefined number of players"))
+      (dolist (l (cdr data))
+        (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
+               (k (intern (url-unhex-string (car pair))))
+               (v (url-unhex-string (cadr pair))))
+          (when (and player (string= (car pair) "playerindex"))
+            (push player players)
+            (setq player nil))
+          (setq player (plist-put player k v))))
+      (when player
+        (push player players))
+      (reverse players))))
 
 (defun lms-get-players-name ()
   "Get players name as a list."
@@ -252,6 +261,8 @@
 (defun lms-quit ()
   "Quit LMS connection and close buffer."
   (interactive)
+  (when lms--ui-timer
+    (cancel-timer lms--ui-timer))
   (when (process-live-p lms--process)
     (delete-process lms--process)
     (when (bufferp lms-buffer-name)
@@ -537,20 +548,22 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|--------------------+---------------------------------------+----------|
-| Parameter          | Description                           | Default  |
-|--------------------+---------------------------------------+----------|
-| lms-hostname       | Logitech Media Server hostname or ip  | hostname |
-| lms-telnet-port    | Logitech Media Server telnet port     | 9090     |
-| lms-html-port      | Logitech Media Server www port        | 80       |
-| lms-username       | Logitech Media Server username or nil | nil      |
-| lms-password       | Logitech Media Server password or nil | nil      |
-| lms-default-player | Name of default player                | nil      |
-| lms-ui-cover-width | Cover image width                     | 400      |
-|--------------------+---------------------------------------+----------|
+|------------------------+---------------------------------------+----------|
+| Parameter              | Description                           | Default  |
+|------------------------+---------------------------------------+----------|
+| lms-hostname           | Logitech Media Server hostname or ip  | hostname |
+| lms-telnet-port        | Logitech Media Server telnet port     | 9090     |
+| lms-html-port          | Logitech Media Server www port        | 80       |
+| lms-username           | Logitech Media Server username or nil | nil      |
+| lms-password           | Logitech Media Server password or nil | nil      |
+| lms-default-player     | Name of default player                | nil      |
+| lms-ui-cover-width     | Cover image width                     | 400      |
+| lms-ui-update-interval | Time in seconds between UI updates    | nil      |
+|------------------------+---------------------------------------+----------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
-(2) It's recomendable not to change *lms-ui-cover-width*
+(2) It's recomendable not to change *lms-ui-cover-width*.
+(3) Note that small values in *lms-ui-update-interval* will freeze your Emacs use while refreshing window.
 
 * Playing now
 Main window showing information about current track and player status.
@@ -594,6 +607,7 @@ Playlist view.
 | i            | show track information     |
 | d, <delete>  | remove track from playlist |
 | c            | clear playlist             |
+| g            | update window contents     |
 | h, ?         | show this documentation    |
 | q            | close window               |
 |--------------+----------------------------|
@@ -679,7 +693,10 @@ Playlist view.
 (defun lms-ui ()
   "LMS UI entry point."
   (interactive)
-  (lms-ui-playing-now))
+  (lms-ui-playing-now)
+  (switch-to-buffer "*LMS: Playing Now*")
+  (when lms-ui-update-interval
+    (setq lms--ui-timer (run-at-time nil lms-ui-update-interval 'lms-ui-playing-now))))
 
 ;;;;; Playing now
 (defvar lms-ui-playing-now-mode-map
@@ -746,7 +763,8 @@ Press 'h' or '?' keys for complete documentation")
          (mode (or (plist-get st 'mode) "stop"))
          (repeat (or (plist-get st 'playlist\ repeat) "0"))
          (shuffle (or (plist-get st 'playlist\ shuffle) "0")))
-    (switch-to-buffer "*LMS: Playing Now*")
+    ;; (switch-to-buffer "*LMS: Playing Now*")
+    (set-buffer (get-buffer-create "*LMS: Playing Now*"))
     (lms-ui-playing-now-mode)
     (setq-local buffer-read-only nil)
     (erase-buffer)
@@ -1023,6 +1041,7 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "d")         'lms-ui-playlist-delete-track)
     (define-key map (kbd "<delete>")  'lms-ui-playlist-delete-track)
     (define-key map (kbd "c")         'lms-ui-playlist-clear)
+    (define-key map (kbd "g")         'lms-ui-playlist)
     (define-key map (kbd "h")         'lms-ui-playing-now-help)
     (define-key map (kbd "?")         'lms-ui-playing-now-help)
     (define-key map (kbd "q")         '(lambda () (interactive)
