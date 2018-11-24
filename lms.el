@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-11-23 23:10:35 inigo>
+;; Time-stamp: <2018-11-24 18:41:34 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -102,7 +102,7 @@
 
 (defcustom lms-ui-update-interval nil
   "Time in seconds between UI updates.  Default nil, disabled.
-Note that small values will freeze your Emacs use while refreshing window."
+Note that small values could freeze your Emacs use while refreshing window."
   :type 'integer
   :group 'lms)
 
@@ -120,9 +120,6 @@ Note that small values will freeze your Emacs use while refreshing window."
 (defvar lms--process nil
   "LMS process.")
 
-(defvar lms--ui-timer nil
-  "LMS UI upgrade timer.")
-
 (defvar lms--results nil
   "Internal LMS communications results list.")
 
@@ -134,6 +131,15 @@ Note that small values will freeze your Emacs use while refreshing window."
 
 (defvar lms--temp nil
   "Internal string buffer for communications with LMS server.")
+
+(defvar lms--ui-timer nil
+  "LMS UI upgrade timer.")
+
+(defvar lms--ui-last-id nil
+  "LMS UI last track id shown in Playing Now.")
+
+(defvar lms--ui-last-time nil
+  "LMS UI last track time shown in Playing Now.")
 
 
 ;;;;; Auxiliar internal functions
@@ -563,7 +569,7 @@ There are some parameters you could customize:
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
-(3) Note that small values in *lms-ui-update-interval* will freeze your Emacs use while refreshing window.
+(3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
 
 * Playing now
 Main window showing information about current track and player status.
@@ -696,7 +702,24 @@ Playlist view.
   (lms-ui-playing-now)
   (switch-to-buffer "*LMS: Playing Now*")
   (when lms-ui-update-interval
-    (setq lms--ui-timer (run-at-time nil lms-ui-update-interval 'lms-ui-playing-now))))
+    (setq lms--ui-timer (run-at-time nil lms-ui-update-interval 'lms-ui-playing-now-update))))
+
+(defun lms-ui-playing-now-update ()
+  "Update Playing Now screen."
+  (let* ((buf (lms--send-command-get-response (format "%s status - 1" lms--default-playerid)))
+         (id (replace-regexp-in-string ".* id%3A\\(.*\\) .*" "\\1" buf))
+         (time (string-to-number (replace-regexp-in-string ".* time%3A\\(.*\\) .*" "\\1" buf))))
+    (unless (= time lms--ui-last-time)
+      (if (string= id lms--ui-last-id)
+          (progn
+            (set-buffer (get-buffer-create "*LMS: Playing Now*"))
+            (goto-char (point-min))
+            (forward-line 6)
+            (let ((inhibit-read-only t))
+              (while (not (looking-at-p "/"))
+                (delete-char 1))
+              (insert (lms--format-time time))))
+        (lms-ui-playing-now)))))
 
 ;;;;; Playing now
 (defvar lms-ui-playing-now-mode-map
@@ -763,6 +786,8 @@ Press 'h' or '?' keys for complete documentation")
          (mode (or (plist-get st 'mode) "stop"))
          (repeat (or (plist-get st 'playlist\ repeat) "0"))
          (shuffle (or (plist-get st 'playlist\ shuffle) "0")))
+    (setq lms--ui-last-id id)
+    (setq lms--ui-last-time time)
     ;; (switch-to-buffer "*LMS: Playing Now*")
     (set-buffer (get-buffer-create "*LMS: Playing Now*"))
     (lms-ui-playing-now-mode)
