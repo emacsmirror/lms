@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2018-12-09 20:33:37 inigo>
+#+DATE: Time-stamp: <2018-12-09 20:57:11 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -91,6 +91,7 @@ The actions triggered by pressing keys refer to the track under cursor.
 | <up>, <down> | move cursor                        |
 | <enter>      | play track                         |
 | i            | show track information             |
+| j            | jump to current track              |
 | d, <delete>  | remove track from playlist         |
 | c c          | clear playlist                     |
 | c u          | remove tracks from start to cursor |

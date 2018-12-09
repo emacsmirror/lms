@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 20:46:37 inigo>
+;; Time-stamp: <2018-12-09 20:56:59 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -769,6 +769,7 @@ The actions triggered by pressing keys refer to the track under cursor.
 | <up>, <down> | move cursor                        |
 | <enter>      | play track                         |
 | i            | show track information             |
+| j            | jump to current track              |
 | d, <delete>  | remove track from playlist         |
 | c c          | clear playlist                     |
 | c u          | remove tracks from start to cursor |
@@ -1305,6 +1306,7 @@ Press 'h' or '?' keys for complete documentation")
     (set-keymap-parent map tabulated-list-mode-map)
     (define-key map (kbd "RET")       'lms-ui-playlist-play)
     (define-key map (kbd "i")         'lms-ui-playlist-track-info)
+    (define-key map (kbd "j")         'lms-ui-playlist-jump-to-current)
     (define-key map (kbd "d")         'lms-ui-playlist-delete-track)
     (define-key map (kbd "<delete>")  'lms-ui-playlist-delete-track)
     (define-key map (kbd "c c")       'lms-ui-playlist-clear)
@@ -1377,6 +1379,12 @@ Press 'h' or '?' keys for complete documentation."
     (sleep-for 0.5)
     (lms-ui-playlist)))
 
+(defun lms-ui-playlist-jump-to-current ()
+  "Jump to current track."
+  (interactive)
+  (goto-char (point-min))
+  (search-forward "♫" nil t))
+
 (defun lms-ui-playlist-delete-track ()
   "Remove selected track from playlist."
   (interactive)
@@ -1405,18 +1413,18 @@ Press 'h' or '?' keys for complete documentation."
         (setq max (1- max)))
       (lms-ui-playlist))))
 
-(defun lms-ui-playlist-track-info ()
-  "Open track information buffer for selected track."
-  (interactive)
-  (when (tabulated-list-get-id)
-    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))))
-
 (defun lms-ui-playlist-clear ()
   "Clear playlist."
   (interactive)
   (when (and (tabulated-list-get-id) (y-or-n-p "Clear playlist? "))
     (lms-playlist-clear)
     (lms-ui-playlist)))
+
+(defun lms-ui-playlist-track-info ()
+  "Open track information buffer for selected track."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))))
 
 (defun lms-ui-playlist-artist-albums-list ()
   "Show list of albums by the artist of current track."
