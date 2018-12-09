@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 16:39:40 inigo>
+;; Time-stamp: <2018-12-09 17:52:38 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -1426,7 +1426,6 @@ Press 'h' or '?' keys for complete documentation."
              (albumid (lms-get-album-id-from-name album))
              (buftitle (format "*LMS: Tracks in album '%s'*" album))
              (lst (lms-get-tracks-from-albumid albumid)))
-        (message "%S|%S" album artist)
         (lms-ui-tracks-list buftitle lst))))
 
 
