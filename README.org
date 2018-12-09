@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2018-12-09 16:39:49 inigo>
+#+DATE: Time-stamp: <2018-12-09 20:33:37 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -87,19 +87,21 @@ Display track information.
 Playlist view.
 The actions triggered by pressing keys refer to the track under cursor.
 ** Key bindings
-|--------------+------------------------------|
-| <up>, <down> | move cursor                  |
-| <enter>      | play track                   |
-| i            | show track information       |
-| d, <delete>  | remove track from playlist   |
-| c            | clear playlist               |
-| g            | update window contents       |
-| T            | show all tracks of album     |
-| A            | show all albums by artist    |
-| Y            | show all albums of this year |
-| h, ?         | show this documentation      |
-| q            | close window                 |
-|--------------+------------------------------|
+|--------------+------------------------------------|
+| <up>, <down> | move cursor                        |
+| <enter>      | play track                         |
+| i            | show track information             |
+| d, <delete>  | remove track from playlist         |
+| c c          | clear playlist                     |
+| c u          | remove tracks from start to cursor |
+| c f          | remove tracks from cursor to end   |
+| g            | update window contents             |
+| T            | show all tracks of album           |
+| A            | show all albums by artist          |
+| Y            | show all albums of this year       |
+| h, ?         | show this documentation            |
+| q            | close window                       |
+|--------------+------------------------------------|
 
 * Year - Album - Artist list
 View all albums of an artist, sorted by date/year.

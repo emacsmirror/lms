@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 17:52:38 inigo>
+;; Time-stamp: <2018-12-09 20:46:37 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -560,9 +560,9 @@ If VLIBID is specified use only that virtual library."
 
 (defun lms-get-recent-albums (n)
   "Get most recent N albums."
-  (let* ((cmd (format "albums 0 %d sort:new tags:la" n))
+  (let* ((cmd (format "albums 0 %d sort:new tags:aly" n))
          (buf (lms--send-command-get-response cmd)))
-    (lms--build-list-from-string-attrs buf '("id" "album" "artist"))))
+    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
 
 (defun lms-get-albums-from-artistid (artistid)
   "Get a list with albums from ARTISTID."
@@ -765,19 +765,21 @@ Display track information.
 Playlist view.
 The actions triggered by pressing keys refer to the track under cursor.
 ** Key bindings
-|--------------+------------------------------|
-| <up>, <down> | move cursor                  |
-| <enter>      | play track                   |
-| i            | show track information       |
-| d, <delete>  | remove track from playlist   |
-| c            | clear playlist               |
-| g            | update window contents       |
-| T            | show all tracks of album     |
-| A            | show all albums by artist    |
-| Y            | show all albums of this year |
-| h, ?         | show this documentation      |
-| q            | close window                 |
-|--------------+------------------------------|
+|--------------+------------------------------------|
+| <up>, <down> | move cursor                        |
+| <enter>      | play track                         |
+| i            | show track information             |
+| d, <delete>  | remove track from playlist         |
+| c c          | clear playlist                     |
+| c u          | remove tracks from start to cursor |
+| c f          | remove tracks from cursor to end   |
+| g            | update window contents             |
+| T            | show all tracks of album           |
+| A            | show all albums by artist          |
+| Y            | show all albums of this year       |
+| h, ?         | show this documentation            |
+| q            | close window                       |
+|--------------+------------------------------------|
 
 * Year - Album - Artist list
 View all albums of an artist, sorted by date/year.
@@ -1305,7 +1307,9 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "i")         'lms-ui-playlist-track-info)
     (define-key map (kbd "d")         'lms-ui-playlist-delete-track)
     (define-key map (kbd "<delete>")  'lms-ui-playlist-delete-track)
-    (define-key map (kbd "c")         'lms-ui-playlist-clear)
+    (define-key map (kbd "c c")       'lms-ui-playlist-clear)
+    (define-key map (kbd "c u")       'lms-ui-playlist-clear-until-track)
+    (define-key map (kbd "c f")       'lms-ui-playlist-clear-from-track)
     (define-key map (kbd "g")         'lms-ui-playlist)
     (define-key map (kbd "A")         'lms-ui-playlist-artist-albums-list)
     (define-key map (kbd "Y")         'lms-ui-playlist-year-albums-list)
@@ -1379,6 +1383,27 @@ Press 'h' or '?' keys for complete documentation."
   (when (tabulated-list-get-id)
     (lms-playlist-delete-track (tabulated-list-get-id))
     (lms-ui-playlist)))
+
+(defun lms-ui-playlist-clear-until-track ()
+  "Remove tracks from playlist, from start to cursor."
+  (interactive)
+  (when (and (tabulated-list-get-id) (y-or-n-p "Clear tracks from start to cursor? "))
+    (let ((current (1- (tabulated-list-get-id))))
+      (while (>= current 0)
+        (lms-playlist-delete-track current)
+        (setq current (1- current)))
+      (lms-ui-playlist))))
+
+(defun lms-ui-playlist-clear-from-track ()
+  "Remove tracks from playlist, from cursor to end."
+  (interactive)
+  (when (and (tabulated-list-get-id) (y-or-n-p "Clear tracks from cursor to end? "))
+    (let ((current (tabulated-list-get-id))
+          (max (1- (length lms--ui-pl-tracks))))
+      (while (> max current)
+        (lms-playlist-delete-track max)
+        (setq max (1- max)))
+      (lms-ui-playlist))))
 
 (defun lms-ui-playlist-track-info ()
   "Open track information buffer for selected track."
