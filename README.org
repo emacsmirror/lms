@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2018-11-24 18:12:28 inigo>
+#+DATE: Time-stamp: <2018-12-09 16:39:49 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -48,6 +48,7 @@ Notes:
 
 * Playing now
 Main window showing information about current track and player status.
+The actions triggered by pressing keys refer to the current track.
 ** Key bindings
 |------------+--------------------------------|
 | Ctrl-w     | change player power state      |
@@ -66,6 +67,9 @@ Main window showing information about current track and player status.
 | g          | update window contents         |
 | i          | display track information      |
 | l          | display playlist               |
+| T          | show all tracks of album       |
+| A          | show all albums by artist      |
+| Y          | show all albums of this year   |
 | h, ?       | show this documentation        |
 | q          | quit LMS                       |
 |------------+--------------------------------|
@@ -81,14 +85,47 @@ Display track information.
 
 * Playlist
 Playlist view.
+The actions triggered by pressing keys refer to the track under cursor.
 ** Key bindings
-|--------------+----------------------------|
-| <up>, <down> | move cursor                |
-| <enter>      | play track                 |
-| i            | show track information     |
-| d, <delete>  | remove track from playlist |
-| c            | clear playlist             |
-| g            | update window contents     |
-| h, ?         | show this documentation    |
-| q            | close window               |
-|--------------+----------------------------|
+|--------------+------------------------------|
+| <up>, <down> | move cursor                  |
+| <enter>      | play track                   |
+| i            | show track information       |
+| d, <delete>  | remove track from playlist   |
+| c            | clear playlist               |
+| g            | update window contents       |
+| T            | show all tracks of album     |
+| A            | show all albums by artist    |
+| Y            | show all albums of this year |
+| h, ?         | show this documentation      |
+| q            | close window                 |
+|--------------+------------------------------|
+
+* Year - Album - Artist list
+View all albums of an artist, sorted by date/year.
+The actions triggered by pressing keys refer to the album under cursor.
+** Key bindings
+|--------------+------------------------------|
+| <up>, <down> | move cursor                  |
+| <enter>, T   | show all tracks of album     |
+| A            | show all albums by artist    |
+| Y            | show all albums of this year |
+| p            | add album to playlist        |
+| h, ?         | show this documentation      |
+| q            | close window                 |
+|--------------+------------------------------|
+
+* Tracks list
+View list of tracks.
+The actions triggered by pressing keys refer to the track under cursor.
+** Key bindings
+|--------------+------------------------------|
+| <up>, <down> | move cursor                  |
+| <enter>, i   | display track information    |
+| A            | show all albums by artist    |
+| Y            | show all albums of this year |
+| p            | add songs to playlist        |
+| P            | add all songs to playlist    |
+| h, ?         | show this documentation      |
+| q            | close window                 |
+|--------------+------------------------------|
