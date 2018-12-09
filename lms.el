@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 22:09:47 inigo>
+;; Time-stamp: <2018-12-09 23:34:33 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -1267,6 +1267,8 @@ Press 'h' or '?' keys for complete documentation")
     (setq trackinfo (plist-put trackinfo 'title (decode-coding-string (plist-get trackinfo 'title) 'utf-8)))
     (setq trackinfo (plist-put trackinfo 'artist (decode-coding-string (plist-get trackinfo 'artist) 'utf-8)))
     (setq trackinfo (plist-put trackinfo 'album (decode-coding-string (plist-get trackinfo 'album) 'utf-8)))
+    (setq trackinfo (plist-put trackinfo 'genre (decode-coding-string (plist-get trackinfo 'genre) 'utf-8)))
+    (setq trackinfo (plist-put trackinfo 'url (decode-coding-string (url-unhex-string (plist-get trackinfo 'url)) 'utf-8)))
     (setq trackinfo (plist-put trackinfo 'duration (lms--format-time (string-to-number (plist-get trackinfo 'duration)))))
     (setq trackinfo (plist-put trackinfo 'rating (lms--format-rating (string-to-number (plist-get trackinfo 'rating)))))
     (setq trackinfo (plist-put trackinfo 'filesize (lms--format-filesize (string-to-number (plist-get trackinfo 'filesize)))))
