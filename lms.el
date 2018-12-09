@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-11-24 18:41:34 inigo>
+;; Time-stamp: <2018-12-05 12:56:21 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -190,6 +190,25 @@ Note that small values could freeze your Emacs use while refreshing window."
         (push data lms--results)
         (sleep-for .1)))
     (string-trim (string-remove-prefix cmd data))))
+
+(defun lms--build-list-from-string-attrs (buf attrs)
+  "Return a list of plist from BUF string and ATTRS."
+  (let* (results
+         (build-plist (lambda (attrs)
+                       (let (tmp)
+                         (dolist (a attrs tmp)
+                           (setq tmp (append tmp (list (intern a) nil)))))))
+         (vars (funcall build-plist attrs))
+         (buf (substring buf (string-match (car attrs) buf))))
+    (dolist (e (split-string buf))
+      (dolist (attr attrs)
+        (when (string-prefix-p attr e) ; found a valid attr
+          (when (plist-get vars (intern attr)) ; element with same attr already exists -> new bundle
+            (add-to-list 'results vars)
+            (setq vars (funcall build-plist attrs)))
+          (plist-put vars (intern attr) (cadr (split-string e "%3A"))))))
+    (add-to-list 'results vars)
+    (reverse results)))
 
 ;;;;; Players
 (defun lms-get-players (&optional force-populate)
@@ -441,33 +460,15 @@ VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
   "Get playlist for PLAYERID."
   (unless playerid
     (setq playerid lms--default-playerid))
-  (let ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
-        (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
-        (buf (lms--send-command-get-response (format "%s status 0 1000 tags:alytd" playerid)))
-        lst-id lst-title lst-artist lst-album lst-year lst-tracknum lst-duration lst)
-    (dolist (e (split-string buf))
-      (when (string-prefix-p "id" e)
-        (push (cadr (split-string e "%3A")) lst-id))
-      (when (string-prefix-p "title" e)
-        (push (cadr (split-string e "%3A")) lst-title))
-      (when (string-prefix-p "artist" e)
-        (push (cadr (split-string e "%3A")) lst-artist))
-      (when (string-prefix-p "album" e)
-        (push (cadr (split-string e "%3A")) lst-album))
-      (when (string-prefix-p "year" e)
-        (push (cadr (split-string e "%3A")) lst-year))
-      (when (string-prefix-p "tracknum" e)
-        (push (cadr (split-string e "%3A")) lst-tracknum))
-      (when (string-prefix-p "duration" e)
-        (push (cadr (split-string e "%3A")) lst-duration)))
-    (dotimes (i tot)
-      (push (list 'index (- tot i 1) 'id (pop lst-id) 'title (pop lst-title)
-                  'artist (pop lst-artist) 'album (pop lst-album)
-                  'year (pop lst-year) 'tracknum (pop lst-tracknum)
-                  'duration (string-to-number (pop lst-duration)) 'current nil)
-            lst))
-    (plist-put (nth idx lst) 'current t)
-    lst))
+  (let* ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
+         (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
+         (buf (lms--send-command-get-response (format "%s status 0 1000 tags:alydt" playerid)))
+         (lst (lms--build-list-from-string-attrs buf '("id" "title" "artist" "album" "year" "tracknum" "duration"))))
+    (dotimes (i tot lst)
+      (let ((track (nth i lst)))
+        (setq track (plist-put track 'duration (string-to-number (plist-get track 'duration))))
+        (setq track (plist-put track 'index i))
+        (setq track (plist-put track 'current (eq idx i)))))))
 
 ;;;;; Misc
 (defun lms--get-status (&optional playerid)
