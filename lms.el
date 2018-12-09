@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 22:03:17 inigo>
+;; Time-stamp: <2018-12-09 22:09:47 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -888,7 +888,7 @@ The actions triggered by pressing keys refer to the track under cursor.
     "off"))
 
 (defun lms--playlist-control (cmd object &optional playerid)
-  "Return current track albumid on PLAYERID."
+  "Execute playlistcontrol CMD and OBJECT with optional PLAYERID."
   (unless playerid
     (setq playerid lms--default-playerid))
   (lms--send-command (format "%s playlistcontrol cmd:%s %s" playerid cmd object)))
