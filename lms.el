@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 21:32:41 inigo>
+;; Time-stamp: <2018-12-09 22:03:17 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -1322,7 +1322,7 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "T")                 'lms-ui-playlist-album-tracks-list)
     (define-key map (kbd "h")                 'lms-ui-playing-now-help)
     (define-key map (kbd "?")                 'lms-ui-playing-now-help)
-    (define-key map (kbd "q")                 '(lambda () (interactive) (kill-buffer "*LMS: Playlist*")))
+    (define-key map (kbd "q")                 '(lambda () (interactive) (kill-buffer (format "*LMS: Playlist [%d tracks]*" (length lms--ui-pl-tracks)))))
     map)
   "Local keymap for `lms-ui-playlist-mode' buffers.")
 
@@ -1342,6 +1342,9 @@ Press 'h' or '?' keys for complete documentation."
 (defun lms-ui-playlist ()
   "Playlist."
   (interactive)
+  (mapc #'(lambda (b) (when (string-prefix-p "*LMS: Playlist" (buffer-name b))
+                        (kill-buffer b)))
+            (buffer-list))
   (switch-to-buffer "*LMS: Playlist*" nil)
   (setq-local buffer-read-only nil)
   (erase-buffer)
@@ -1367,6 +1370,7 @@ Press 'h' or '?' keys for complete documentation."
                                        'face '()))))
                   tracks))
     (setq-local lms--ui-pl-tracks tracks))
+  (rename-buffer (format "*LMS: Playlist [%d tracks]*" (length lms--ui-pl-tracks)))
   (tabulated-list-print t)
   (goto-char (point-min))
   (hl-line-mode 1)
