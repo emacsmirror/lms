@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-05 12:56:21 inigo>
+;; Time-stamp: <2018-12-09 13:21:51 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
-;; Version: 0.7
+;; Version: 0.8
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
