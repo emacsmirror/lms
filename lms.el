@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-11 00:09:42 inigo>
+;; Time-stamp: <2018-12-11 00:37:53 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
-;; Version: 0.9
+;; Version: 0.10
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -39,16 +39,13 @@
 ;;; Major updates:
 
 ;; 2017/07/29 Initial version.
-;; 2018/12/09 Added library browsing features.
+;; 2018/12/09 Added library browsing features from current track.
+;; 2018/12/10 Added library browsing features.
 
 ;;; TODO:
+;; . search
+;; . random mix by (song, album, artist, year, genre)
 ;; . virtual library: library_id
-;; . search:
-;;   . click (artist, album, year)
-;;   . b: browse (artist, album, year, genre)
-;;   . /, C-s: search by
-;;   . random album
-;;   . r: random mix by (song, album, artist, year, genre)
 ;;
 ;; Doubts:
 ;; . mode key map with no inherited key bindings
@@ -105,6 +102,16 @@
   "Time in seconds between UI updates.  Default nil, disabled.
 Note that small values could freeze your Emacs use while refreshing window."
   :type 'integer
+  :group 'lms)
+
+(defcustom lms-number-recent-albums 25
+  "Number of recent albums to show."
+  :type 'integer
+  :group 'lms)
+
+(defcustom lms-use-helm-in-library-browsing nil
+  "Use helm to select item in library browsing.  Default nil, use ido."
+  :type 'boolean
   :group 'lms)
 
 
@@ -576,6 +583,12 @@ If VLIBID is specified use only that virtual library."
          (buf (lms--send-command-get-response cmd)))
     (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
 
+(defun lms-get-albums-from-genre-id (genreid)
+  "Get a list with albums from GENREID."
+  (let* ((cmd (format "albums 0 10000 genre_id:%s sort:yearartistalbum tags:aly" genreid))
+         (buf (lms--send-command-get-response cmd)))
+    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
+
 (defun lms-get-random-albums (&optional max vlibid)
   "Get a list of 50 or MAX random albums.
 If VLIBID is specified use only that virtual library."
@@ -648,6 +661,17 @@ If VLIBID is specified use only that virtual library."
   (let ((buf (lms--send-command-get-response (format "%s status - 1 tags:y" playerid))))
     (plist-get (car (lms--build-list-from-string-attrs buf '("id" "year"))) 'year)))
 
+;; genres
+(defun lms-get-genre-id-from-name (genre)
+  "Get genreid from GENRE name."
+  (let* ((genre2 (url-hexify-string genre))
+         (cmd (format "genres 0 100 genre:%s" genre2))
+         (buf (lms--send-command-get-response cmd))
+         genreid)
+    (dolist (g (lms--build-list-from-string-attrs buf '("id" "genre")) genreid)
+      (when (string= (plist-get g 'genre) genre2)
+        (setq genreid (plist-get g 'id))))))
+
 
 ;;;;; Misc
 (defun lms--get-status (&optional playerid)
@@ -707,18 +731,20 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|------------------------+---------------------------------------+----------|
-| Parameter              | Description                           | Default  |
-|------------------------+---------------------------------------+----------|
-| lms-hostname           | Logitech Media Server hostname or ip  | hostname |
-| lms-telnet-port        | Logitech Media Server telnet port     | 9090     |
-| lms-html-port          | Logitech Media Server www port        | 80       |
-| lms-username           | Logitech Media Server username or nil | nil      |
-| lms-password           | Logitech Media Server password or nil | nil      |
-| lms-default-player     | Name of default player                | nil      |
-| lms-ui-cover-width     | Cover image width                     | 400      |
-| lms-ui-update-interval | Time in seconds between UI updates    | nil      |
-|------------------------+---------------------------------------+----------|
+|----------------------------------+---------------------------------------------+-----------|
+| Parameter                        | Description                                 | Default   |
+|----------------------------------+---------------------------------------------+-----------|
+| lms-hostname                     | Logitech Media Server hostname or ip        | hostname  |
+| lms-telnet-port                  | Logitech Media Server telnet port           | 9090      |
+| lms-html-port                    | Logitech Media Server www port              | 80        |
+| lms-username                     | Logitech Media Server username or nil       | nil       |
+| lms-password                     | Logitech Media Server password or nil       | nil       |
+| lms-default-player               | Name of default player                      | nil       |
+| lms-ui-cover-width               | Cover image width                           | 400       |
+| lms-ui-update-interval           | Time in seconds between UI updates          | nil       |
+| lms-number-recent-albums         | Number of recent albums to show             | 25        |
+| lms-use-helm-in-library-browsing | Use helm to select item in library browsing | nil (ido) |
+|----------------------------------+---------------------------------------------+-----------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
@@ -748,6 +774,7 @@ The actions triggered by pressing keys refer to the current track.
 | T          | show all tracks of album       |
 | A          | show all albums by artist      |
 | Y          | show all albums of this year   |
+| M          | browse music libray            |
 | h, ?       | show this documentation        |
 | q          | quit LMS                       |
 |------------+--------------------------------|
@@ -903,6 +930,17 @@ The actions triggered by pressing keys refer to the track under cursor.
         ("Play next" "insert")
         ("Replace" "load")))))
 
+(defsubst lms--unhex-utf8-string (s)
+  "Unhex and decode string S to UTF-8."
+  (decode-coding-string (url-unhex-string s) 'utf-8))
+
+(defsubst lms--helm-select-from-list (title lst fuzzy)
+  "Select item from list using helm."
+  (helm :sources (helm-build-sync-source title
+                   :candidates 'lst
+                   :fuzzy-match fuzzy)
+        :buffer (format "*helm %s*" title)))
+
 
 ;;;;; Main
 ;;;###autoload
@@ -958,9 +996,10 @@ The actions triggered by pressing keys refer to the track under cursor.
     (define-key map (kbd "g")         'lms-ui-playing-now-refresh)
     (define-key map (kbd "i")         'lms-ui-playing-now-show-track-info)
     (define-key map (kbd "l")         'lms-ui-playing-now-show-playlist)
+    (define-key map (kbd "T")         'lms-ui-playing-now-album-tracks-list)
     (define-key map (kbd "A")         'lms-ui-playing-now-artist-albums-list)
     (define-key map (kbd "Y")         'lms-ui-playing-now-year-albums-list)
-    (define-key map (kbd "T")         'lms-ui-playing-now-album-tracks-list)
+    (define-key map (kbd "M")         'lms-ui-playing-now-browse-music-library)
     (define-key map (kbd "h")         'lms-ui-playing-now-help)
     (define-key map (kbd "?")         'lms-ui-playing-now-help)
     (define-key map (kbd "q")         'lms-ui-playing-now-quit)
@@ -1243,6 +1282,52 @@ Press 'h' or '?' keys for complete documentation")
          (buftitle (format "*LMS: Tracks in album '%s'*" (lms--unhex-encode (lms-get-album-name-from-id albumid))))
          (lst (lms-get-tracks-from-albumid albumid)))
     (lms-ui-tracks-list buftitle lst)))
+
+(defun lms-ui-playing-now-browse-music-library ()
+  "Browse music library."
+  (interactive)
+  (let* ((lst '("Artist" "Album" "Genre" "Year" "Recent albums"))
+         (action (ido-completing-read "Browse music library by? " lst)))
+    (when (and action (seq-contains lst action))
+      (pcase action
+        ("Artist"
+         (let* ((artists (mapcar #'(lambda (a) (lms--unhex-utf8-string (plist-get a 'artist)))
+                                 (lms-get-artists)))
+                (artist (if lms-use-helm-in-library-browsing
+                            (lms--helm-select-from-list "LMS artists" artists t)
+                          (ido-completing-read "Artist? " artists))))
+          (when (and artist (seq-contains artists artist))
+             (lms-ui-year-album-artist-list (format "*LMS: Albums by %s*" artist)
+                                            (lms-get-albums-from-artistid (lms-get-artist-id-from-name artist))))))
+        ("Album"
+         (let* ((albums (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'album)))
+                                (lms-get-albums)))
+                (album (if lms-use-helm-in-library-browsing
+                           (lms--helm-select-from-list "LMS albums" albums t)
+                         (ido-completing-read "Album? " albums))))
+           (when (and album (seq-contains albums album))
+             (lms-ui-tracks-list (format "*LMS: Album '%s'*" album)
+                                 (lms-get-tracks-from-albumid (lms-get-album-id-from-name album))))))
+        ("Genre"
+         (let* ((genres (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'genre)))
+                                (lms-get-genres)))
+                (genre (if lms-use-helm-in-library-browsing
+                           (lms--helm-select-from-list "LMS genres" genres t)
+                         (ido-completing-read "Genre? " genres))))
+           (when (and genre (seq-contains genres genre))
+             (lms-ui-year-album-artist-list (format "*LMS: Albums in genre %s*" genre)
+                                            (lms-get-albums-from-genre-id (lms-get-genre-id-from-name genre))))))
+        ("Year"
+         (let* ((years (lms-get-years))
+                (year (if lms-use-helm-in-library-browsing
+                          (lms--helm-select-from-list "LMS years" years nil)
+                        (ido-completing-read "Year? " years))))
+           (when (and year (seq-contains years year))
+             (lms-ui-year-album-artist-list (format "*LMS: Albums in year %s*" year)
+                                            (lms-get-albums-from-year year)))))
+        ("Recent albums"
+         (lms-ui-year-album-artist-list "*LMS: recent albums*" (lms-get-recent-albums lms-number-recent-albums)))
+        ))))
 
 
 ;;;;; Song info
