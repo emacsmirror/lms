@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-09 23:34:33 inigo>
+;; Time-stamp: <2018-12-11 00:09:42 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -144,7 +144,7 @@ Note that small values could freeze your Emacs use while refreshing window."
 
 
 ;;;;; Auxiliar internal functions
-(defun split-string-with-max (string delimiter max)
+(defun lms--split-string-with-max (string delimiter max)
   "Split STRING by DELIMITER, returning no more than MAX substrings."
   (let* ((tmp (split-string string delimiter))
          (lst (seq-take tmp (1- max))))
@@ -168,7 +168,7 @@ Note that small values could freeze your Emacs use while refreshing window."
     (when st
       (string-trim (format "%S" st)))))
 
-(defun lms--send-command (cmd)
+(defsubst lms--send-command (cmd)
   "Send command CMD to LMS."
   (process-send-string lms--process (concat cmd "\n")))
 
@@ -224,7 +224,7 @@ Note that small values could freeze your Emacs use while refreshing window."
       (unless (string= (car data) (url-hexify-string (format "count:%d" numplayers)))
         (error "LMS: undefined number of players"))
       (dolist (l (cdr data))
-        (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
+        (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
                (k (intern (url-unhex-string (car pair))))
                (v (url-unhex-string (cadr pair))))
           (when (and player (string= (car pair) "playerindex"))
@@ -608,7 +608,7 @@ If VLIBID is specified use only that virtual library."
          (data (split-string (lms--send-command-get-response cmd)))
          trackinfo)
     (dolist (l data trackinfo)
-      (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
+      (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
              (k (intern (url-unhex-string (car pair))))
              (v (url-unhex-string (cadr pair))))
         (setq trackinfo (plist-put trackinfo k v))))))
@@ -657,7 +657,7 @@ If VLIBID is specified use only that virtual library."
          (data (split-string (lms--send-command-get-response cmd)))
          status)
     (dolist (l data status)
-      (let* ((pair (split-string-with-max l "%3A" 2)) ; :-char
+      (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
              (k (intern (url-unhex-string (car pair))))
              (v (url-unhex-string (cadr pair))))
         (setq status (plist-put status k v))))))
