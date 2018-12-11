@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-11 00:37:53 inigo>
+;; Time-stamp: <2018-12-11 20:29:09 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -557,12 +557,11 @@ If VLIBID is specified use only that virtual library."
   (let* ((buf (lms--send-command-get-response (format "albums 0 100 search:%s tags:aly" (url-hexify-string album))))
          (lst (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
     (if artist
-        (progn
-          (plist-get (seq-find #'(lambda (x) (and
-                                              (string= (lms--unhex-encode (plist-get x 'album)) album)
-                                              (string= (lms--unhex-encode (plist-get x 'artist)) artist)))
-                                   lst)
-                     'id))
+        (plist-get (seq-find #'(lambda (x) (and
+                                            (string= (lms--unhex-encode (plist-get x 'album)) album)
+                                            (string= (lms--unhex-encode (plist-get x 'artist)) artist)))
+                             lst)
+                   'id)
       (plist-get (seq-find #'(lambda (x) (string= (lms--unhex-encode (plist-get x 'album)) album)) lst) 'id))))
 
 (defun lms-get-recent-albums (n)
@@ -666,12 +665,10 @@ If VLIBID is specified use only that virtual library."
   "Get genreid from GENRE name."
   (let* ((genre2 (url-hexify-string genre))
          (cmd (format "genres 0 100 genre:%s" genre2))
-         (buf (lms--send-command-get-response cmd))
-         genreid)
-    (dolist (g (lms--build-list-from-string-attrs buf '("id" "genre")) genreid)
-      (when (string= (plist-get g 'genre) genre2)
-        (setq genreid (plist-get g 'id))))))
-
+         (buf (lms--send-command-get-response cmd)))
+    (plist-get (seq-find #'(lambda (g) (string= (plist-get g 'genre) genre2))
+                         (lms--build-list-from-string-attrs buf '("id" "genre")))
+               'id)))
 
 ;;;;; Misc
 (defun lms--get-status (&optional playerid)
