@@ -29,24 +29,27 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------+-----------|
-| Parameter                        | Description                                 | Default   |
-|----------------------------------+---------------------------------------------+-----------|
-| lms-hostname                     | Logitech Media Server hostname or ip        | hostname  |
-| lms-telnet-port                  | Logitech Media Server telnet port           | 9090      |
-| lms-html-port                    | Logitech Media Server www port              | 80        |
-| lms-username                     | Logitech Media Server username or nil       | nil       |
-| lms-password                     | Logitech Media Server password or nil       | nil       |
-| lms-default-player               | Name of default player                      | nil       |
-| lms-ui-cover-width               | Cover image width                           | 400       |
-| lms-ui-update-interval           | Time in seconds between UI updates          | nil       |
-| lms-number-recent-albums         | Number of recent albums to show             | 25        |
-| lms-use-helm-in-library-browsing | Use helm to select item in library browsing | nil (ido) |
-|----------------------------------+---------------------------------------------+-----------|
+|----------------------------------+---------------------------------------------------------+-----------|
+| Parameter                        | Description                                             | Default   |
+|----------------------------------+---------------------------------------------------------+-----------|
+| lms-hostname                     | Logitech Media Server hostname or ip                    | localhost |
+| lms-telnet-port                  | Logitech Media Server telnet port                       | 9090      |
+| lms-html-port                    | Logitech Media Server www port                          | 80        |
+| lms-username                     | Logitech Media Server username or nil                   | nil       |
+| lms-password                     | Logitech Media Server password or nil                   | nil       |
+| lms-default-player               | Name of default player                                  | nil  (1)  |
+| lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
+| lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
+| lms-number-recent-albums         | Number of recent albums to show                         | 25        |
+| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
+| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
+|----------------------------------+---------------------------------------------------------+-----------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
 (3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
+(4) Enabling *lms-use-helm-in-library-browsing* could make artists and albums retrieval slow. Thus *ido* is used by default.
+(5) If you use helm and items selection is slow set a smaller number for *lms-helm-candidate-number-limit*: 1000, 250, 100…
 
 * Playing now
 Main window showing information about current track and player status.

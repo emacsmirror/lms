@@ -110,8 +110,15 @@ Note that small values could freeze your Emacs use while refreshing window."
   :group 'lms)
 
 (defcustom lms-use-helm-in-library-browsing nil
-  "Use helm to select item in library browsing.  Default nil, use ido."
+  "Use helm to select item in library browsing.  Default nil, use ido.
+Enabling this could make artists and albums retrieval slow."
   :type 'boolean
+  :group 'lms)
+
+(defcustom lms-helm-candidate-number-limit 9999
+  "Maximum number of candidates to show in items selection when using helm.
+Set a smaller number if it is slow: 1000, 250, 100…"
+  :type 'integer
   :group 'lms)
 
 
@@ -728,24 +735,27 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------+-----------|
-| Parameter                        | Description                                 | Default   |
-|----------------------------------+---------------------------------------------+-----------|
-| lms-hostname                     | Logitech Media Server hostname or ip        | hostname  |
-| lms-telnet-port                  | Logitech Media Server telnet port           | 9090      |
-| lms-html-port                    | Logitech Media Server www port              | 80        |
-| lms-username                     | Logitech Media Server username or nil       | nil       |
-| lms-password                     | Logitech Media Server password or nil       | nil       |
-| lms-default-player               | Name of default player                      | nil       |
-| lms-ui-cover-width               | Cover image width                           | 400       |
-| lms-ui-update-interval           | Time in seconds between UI updates          | nil       |
-| lms-number-recent-albums         | Number of recent albums to show             | 25        |
-| lms-use-helm-in-library-browsing | Use helm to select item in library browsing | nil (ido) |
-|----------------------------------+---------------------------------------------+-----------|
+|----------------------------------+---------------------------------------------------------+-----------|
+| Parameter                        | Description                                             | Default   |
+|----------------------------------+---------------------------------------------------------+-----------|
+| lms-hostname                     | Logitech Media Server hostname or ip                    | localhost |
+| lms-telnet-port                  | Logitech Media Server telnet port                       | 9090      |
+| lms-html-port                    | Logitech Media Server www port                          | 80        |
+| lms-username                     | Logitech Media Server username or nil                   | nil       |
+| lms-password                     | Logitech Media Server password or nil                   | nil       |
+| lms-default-player               | Name of default player                                  | nil  (1)  |
+| lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
+| lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
+| lms-number-recent-albums         | Number of recent albums to show                         | 25        |
+| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
+| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
+|----------------------------------+---------------------------------------------------------+-----------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
 (3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
+(4) Enabling *lms-use-helm-in-library-browsing* could make artists and albums retrieval slow. Thus *ido* is used by default.
+(5) If you use helm and items selection is slow set a smaller number for *lms-helm-candidate-number-limit*: 1000, 250, 100…
 
 * Playing now
 Main window showing information about current track and player status.
@@ -934,7 +944,8 @@ The actions triggered by pressing keys refer to the track under cursor.
 (defsubst lms--helm-select-from-list (title lst fuzzy)
   "Select item from list using helm."
   (helm :sources (helm-build-sync-source title
-                   :candidates 'lst
+                   :candidates lst
+                   :candidate-number-limit lms-helm-candidate-number-limit
                    :fuzzy-match fuzzy)
         :buffer (format "*helm %s*" title)))
 
