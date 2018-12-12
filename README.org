@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2018-12-12 00:09:36 inigo>
+#+DATE: Time-stamp: <2018-12-12 01:53:39 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -95,12 +95,15 @@ The actions triggered by pressing keys refer to the current track.
 
 * Track information
 Display track information.
+Previous/next track only works when *Track information* window was called from a list, but not from *Playing now*.
 ** Key bindings
-|------+-------------------------|
-| C-r  | change track rating     |
-| h, ? | show this documentation |
-| q    | close window            |
-|------+-------------------------|
+|------------+-------------------------|
+| C-r        | change track rating     |
+| p, <left>  | show previous track     |
+| n, <right> | show next track         |
+| h, ?       | show this documentation |
+| q          | close window            |
+|------------+-------------------------|
 
 * Playlist
 Playlist view.

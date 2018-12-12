@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-12 00:10:28 inigo>
+;; Time-stamp: <2018-12-12 23:48:23 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -837,12 +837,15 @@ The actions triggered by pressing keys refer to the current track.
 
 * Track information
 Display track information.
+Previous/next track only works when *Track information* window was called from a list, but not from *Playing now*.
 ** Key bindings
-|------+-------------------------|
-| C-r  | change track rating     |
-| h, ? | show this documentation |
-| q    | close window            |
-|------+-------------------------|
+|------------+-------------------------|
+| C-r        | change track rating     |
+| p, <left>  | show previous track     |
+| n, <right> | show next track         |
+| h, ?       | show this documentation |
+| q          | close window            |
+|------------+-------------------------|
 
 * Playlist
 Playlist view.
@@ -901,7 +904,10 @@ The actions triggered by pressing keys refer to the track under cursor.
   "Temporal trackid variable while in 'playing now' view.")
 
 (defvar lms--ui-track-info-trackid nil
-  "Temporal trackid variable while in 'track info' view.")
+  "Temporal variable to save in 'track info' view.")
+
+(defvar lms--ui-track-info-tracksids nil
+  "Temporal variable to save tracks ids in 'track info' view.")
 
 (defvar lms--ui-pl-tracks nil
   "Temporal tracks list variable in 'playlist' view.")
@@ -1390,19 +1396,24 @@ Press 'h' or '?' keys for complete documentation")
 ;;;;; Song info
 (defvar lms-ui-track-info-mode-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-r")  'lms-ui-track-info-change-rating)
-    (define-key map (kbd "h")    'lms-ui-playing-now-help)
-    (define-key map (kbd "?")    'lms-ui-playing-now-help)
-    (define-key map (kbd "q")    '(lambda () (interactive)
-                                    (kill-buffer "*LMS: Track Information*")))
+    (define-key map (kbd "C-r")     'lms-ui-track-info-change-rating)
+    (define-key map (kbd "p")       'lms-ui-track-info-prev)
+    (define-key map (kbd "<left>")  'lms-ui-track-info-prev)
+    (define-key map (kbd "n")       'lms-ui-track-info-next)
+    (define-key map (kbd "<right>") 'lms-ui-track-info-next)
+    (define-key map (kbd "h")       'lms-ui-playing-now-help)
+    (define-key map (kbd "?")       'lms-ui-playing-now-help)
+    (define-key map (kbd "q")       '(lambda () (interactive)
+                                       (kill-buffer "*LMS: Track Information*")))
     map)
   "Local keymap for `lms-ui-track-info-mode' buffers.")
 
 (define-derived-mode lms-ui-track-info-mode fundamental-mode "LMS Track Information"
   "Major mode for LMS Track Information buffer.")
 
-(defun lms-ui-track-info (trackid)
-  "Track information for TRACKID."
+(defun lms-ui-track-info (trackid &optional tracks-ids)
+  "Track information for TRACKID.
+Optional TRACKS-IDS variable is used to identify prev/next song."
   (interactive)
   (let ((trackinfo (lms-get-track-info trackid))
         k v)
@@ -1418,6 +1429,7 @@ Press 'h' or '?' keys for complete documentation")
     (lms-ui-track-info-mode)
     (setq-local buffer-read-only nil)
     (setq-local lms--ui-track-info-trackid (plist-get trackinfo 'id))
+    (setq-local lms--ui-track-info-tracksids tracks-ids)
     (erase-buffer)
     (insert (propertize "Track information" 'face '(variable-pitch (:height 1.5 :weight bold :underline t :foreground "SlateGray"))))
     (insert "\n\n")
@@ -1440,8 +1452,27 @@ Press 'h' or '?' keys for complete documentation")
          (rating (ido-completing-read "Rating: " lst)))
     (when (and rating (seq-contains lst rating))
       (lms-set-track-rating lms--ui-track-info-trackid rating)
-      (sleep-for .2)
-      (lms-ui-track-info lms--ui-track-info-trackid))))
+      (goto-char (point-min))
+      (when (search-forward "Rating: " nil nil)
+        (let ((inhibit-read-only t))
+          (kill-line)
+          (insert (lms--format-rating (string-to-number rating))))))))
+
+(defun lms-ui-track-info-prev ()
+  "Show previous track information."
+  (interactive)
+  (when lms--ui-track-info-tracksids
+    (let ((idx (seq-position lms--ui-track-info-tracksids lms--ui-track-info-trackid)))
+      (when (and idx (> idx 0))
+        (lms-ui-track-info (nth (1- idx) lms--ui-track-info-tracksids) lms--ui-track-info-tracksids)))))
+
+(defun lms-ui-track-info-next ()
+  "Show next track information."
+  (interactive)
+  (when lms--ui-track-info-tracksids
+    (let ((idx (seq-position lms--ui-track-info-tracksids lms--ui-track-info-trackid)))
+      (when (and idx (< (1+ idx) (length lms--ui-track-info-tracksids)))
+        (lms-ui-track-info (nth (1+ idx) lms--ui-track-info-tracksids) lms--ui-track-info-tracksids)))))
 
 
 ;;;;; Playlist
@@ -1568,16 +1599,14 @@ Press 'h' or '?' keys for complete documentation."
   "Open track information buffer for selected track."
   (interactive)
   (when (tabulated-list-get-id)
-    (lms-ui-track-info (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))))
+    (let ((trackid (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))
+          (tracks-ids (mapcar #'(lambda (s) (plist-get s 'id)) lms--ui-pl-tracks)))
+      (lms-ui-track-info trackid tracks-ids))))
 
 (defun lms-ui-playlist-artist-albums-list ()
   "Show list of albums by the artist of current track."
   (interactive)
   (when (tabulated-list-get-id)
-    ;; (let* ((artistid (lms-get-artist-id-from-trackid (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id)))
-    ;;        (buftitle (format "*LMS: Albums by %s*" (lms--unhex-encode (lms-get-artist-name-from-id artistid))))
-    ;;        (lst (lms-get-albums-from-artistid artistid)))
-    ;;   (lms-ui-year-album-artist-list buftitle lst))))
     (let* ((artist (lms--unhex-encode (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'artist)))
            (artistid (lms-get-artist-id-from-name artist))
            (buftitle (format "*LMS: Albums by %s*" artist))
@@ -1775,7 +1804,9 @@ Press 'h' or '?' keys for complete documentation."
   "Open track information buffer for track under cursor."
   (interactive)
   (when (tabulated-list-get-id)
-    (lms-ui-track-info (tabulated-list-get-id))))
+    (let ((trackid (tabulated-list-get-id))
+          (tracks-ids (mapcar #'(lambda (s) (plist-get s 'id)) lms--ui-tracks-lst)))
+      (lms-ui-track-info trackid tracks-ids))))
 
 (defun lms-ui-tl-to-playlist ()
   "Select and execute action for track list."
