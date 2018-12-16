@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-16 23:38:54 inigo>
+;; Time-stamp: <2018-12-16 23:46:08 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
-;; Version: 0.10
+;; Version: 0.11
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -41,6 +41,7 @@
 ;; 2017/07/29 Initial version.
 ;; 2018/12/09 Added library browsing features from current track.
 ;; 2018/12/10 Added library browsing features.
+;; 2018/12/16 Colorize lists, prev/next in TrackInfo, clean code, bugs fixed.
 
 ;;; TODO:
 ;; . search
@@ -1361,12 +1362,12 @@ Press 'h' or '?' keys for complete documentation")
                 (artist (if lms-use-helm-in-library-browsing
                             (lms--helm-select-from-list "LMS artists" artists t)
                           (ido-completing-read "Artist? " artists))))
-          (when (and artist (seq-contains artists artist))
+           (when (and artist (seq-contains artists artist))
              (lms-ui-year-album-artist-list (format "*LMS: Albums by %s*" artist)
                                             (lms-get-albums-from-artistid (lms-get-artist-id-from-name artist))))))
         ("Album"
-         (let* ((albums (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'album)))
-                                (lms-get-albums)))
+         (let* ((albums (seq-sort #'string< (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'album)))
+                                                    (lms-get-albums))))
                 (album (if lms-use-helm-in-library-browsing
                            (lms--helm-select-from-list "LMS albums" albums t)
                          (ido-completing-read "Album? " albums))))
