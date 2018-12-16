@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
 ;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-12 23:48:23 inigo>
+;; Time-stamp: <2018-12-16 23:38:54 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmail.com>
 ;; URL: https://bitbucket.com/inigoserna/lms.el
@@ -580,7 +580,9 @@ If VLIBID is specified use only that virtual library."
 
 (defun lms-get-artist-id-from-name (artist)
   "Get artistid from ARTIST name."
-  (let* ((buf (lms--send-command-get-response (format "artists 0 100 search:'%s'" (url-hexify-string artist))))
+  ;; (let* ((buf (lms--send-command-get-response (format "artists 0 100 search:'%s'" (url-hexify-string artist))))
+  (let* ((artist2 (url-hexify-string (encode-coding-string artist 'utf-8)))
+         (buf (lms--send-command-get-response (format "artists 0 100 search:'%s'" artist2)))
          (lst (lms--build-list-from-string-attrs buf '("id" "artist"))))
     (plist-get (seq-find #'(lambda (x) (string= (lms--unhex-encode (plist-get x 'artist)) artist)) lst) 'id)))
 
