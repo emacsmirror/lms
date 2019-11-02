@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
-#+AUTHOR: Iñigo Serna
-#+DATE: Time-stamp: <2018-12-12 01:53:39 inigo>
+#+AUTHOR: Iñigo Serna <inigoserna@gmx.com>
+#+DATE: Time-stamp: <2019-11-02 01:00:34 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -13,7 +13,7 @@ More information on what a *squeezebox controller* is at https://inigo.katxi.org
 Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
 From there, you could read complete documentation after pressing *h* key.
 
-Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://bitbucket.com/inigoserna/lms.el][BitBucket code repository]] as well.
+Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://hg.serna.eu/emacs/lms][the code repository]] as well.
 
 * Features
 This is Squeezebox controller, i.e. a program which can handle your local music library.

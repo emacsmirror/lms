@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend
 
-;; Copyright (C) 2017 Free Software Foundation, Inc.
-;; Time-stamp: <2018-12-16 23:46:08 inigo>
+;; Copyright (C) 2017-9 Free Software Foundation, Inc.
+;; Time-stamp: <2019-11-02 00:55:11 inigo>
 
-;; Author: Iñigo Serna <inigoserna@gmail.com>
-;; URL: https://bitbucket.com/inigoserna/lms.el
-;; Version: 0.11
+;; Author: Iñigo Serna <inigoserna@gmx.com>
+;; URL: https://hg.serna.eu/emacs/lms
+;; Version: 0.12
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -766,7 +766,7 @@ More information on what a *squeezebox controller* is at https://inigo.katxi.org
 Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
 From there, you could read complete documentation after pressing *h* key.
 
-Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://bitbucket.com/inigoserna/lms.el][BitBucket code repository]] as well.
+Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://hg.serna.eu/emacs/lms][the code repository]] as well.
 
 * Features
 This is Squeezebox controller, i.e. a program which can handle your local music library.
