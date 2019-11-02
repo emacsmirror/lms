@@ -41,6 +41,8 @@ There are some parameters you could customize:
 | lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
 | lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
 | lms-number-recent-albums         | Number of recent albums to show                         | 25        |
+| lms-number-random-albums         | Number of random albums to show                         | 25        |
+| lms-number-random-songs          | Number of random songs to show                          | 50        |
 | lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
 | lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
 |----------------------------------+---------------------------------------------------------+-----------|

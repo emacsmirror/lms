@@ -110,6 +110,16 @@ Note that small values could freeze your Emacs use while refreshing window."
   :type 'integer
   :group 'lms)
 
+(defcustom lms-number-random-albums 25
+  "Number of random albums to show."
+  :type 'integer
+  :group 'lms)
+
+(defcustom lms-number-random-songs 50
+  "Number of random songs to show."
+  :type 'integer
+  :group 'lms)
+
 (defcustom lms-use-helm-in-library-browsing nil
   "Use helm to select item in library browsing.  Default nil, use ido.
 Enabling this could make artists and albums retrieval slow."
@@ -634,13 +644,11 @@ If VLIBID is specified use only that virtual library."
          (buf (lms--send-command-get-response cmd)))
     (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
 
-(defun lms-get-random-albums (&optional max vlibid)
-  "Get a list of 50 or MAX random albums.
+(defun lms-get-random-albums (n &optional vlibid)
+  "Get a list of N random albums.
 If VLIBID is specified use only that virtual library."
-  (unless max
-    (setq max 50))
    (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-          (buf (lms--send-command-get-response (format "albums 0 %d tags:lay sort:random%s" max vlib))))
+          (buf (lms--send-command-get-response (format "albums 0 %d tags:lay sort:random%s" n vlib))))
     (lms--build-list-from-string-attrs buf '("id" "album" "artist" "year"))))
 
 ;; tracks
@@ -786,6 +794,8 @@ There are some parameters you could customize:
 | lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
 | lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
 | lms-number-recent-albums         | Number of recent albums to show                         | 25        |
+| lms-number-random-albums         | Number of random albums to show                         | 25        |
+| lms-number-random-songs          | Number of random songs to show                          | 50        |
 | lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
 | lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
 |----------------------------------+---------------------------------------------------------+-----------|
