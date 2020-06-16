@@ -1,11 +1,11 @@
-;;; lms.el --- Squeezebox / Logitech Media Server frontend
+;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-9 Free Software Foundation, Inc.
-;; Time-stamp: <2019-11-02 00:55:11 inigo>
+;; Copyright (C) 2017-20 Free Software Foundation, Inc.
+;; Time-stamp: <2020-06-16 20:10:02 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
-;; Version: 0.12
+;; Version: 1.00
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -31,10 +31,11 @@
 ;; More information on what a "squeezebox controller" is at
 ;; https://inigo.katxi.org/blog/2017/07/31/lms_el.html
 ;;
-;; Quick instructions: customize some basic parameters `lms-hostname',
-;; `lms-telnet-port', `lms-html-port', `lms-username', `lms-password'
-;; and run it with `lms-ui'.
+;; Quick instructions: customize some basic parameters `lms-url'
+;; and run it with `lms' or `lms-ui'.
 ;; Then, you could read complete documentation after pressing 'h' key.
+;; You can also run 'emacsclient -e "(lms-float)"' to display an independent
+;; small frame.
 
 ;;; Major updates:
 
@@ -42,50 +43,28 @@
 ;; 2018/12/09 Added library browsing features from current track.
 ;; 2018/12/10 Added library browsing features.
 ;; 2018/12/16 Colorize lists, prev/next in TrackInfo, clean code, bugs fixed.
+;; 2020/06/14 Complete rewrite to use HTTP requests to LMS instead of telnet.
 
 ;;; TODO:
 ;; . search
 ;; . random mix by (song, album, artist, year, genre)
 ;; . virtual library: library_id
-;;
-;; Doubts:
-;; . mode key map with no inherited key bindings
 
-
+
 ;;; Code:
-(require 'seq)
-(require 'subr-x)
 (require 'org)
+(require 'json)
 
-
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; Customization
+;;;; Customization
+;;;;; Main variables
 (defgroup lms nil
-  "MyNewspaper."
+  "Logitech Media Server Controller for emacs."
   :group 'multimedia)
 
-(defcustom lms-hostname "localhost"
-  "Logitech Media Server hostname or ip."
-  :type 'string
-  :group 'lms)
-
-(defcustom lms-telnet-port 9090
-  "Logitech Media Server telnet port."
-  :type 'string
-  :group 'lms)
-
-(defcustom lms-html-port 80
-  "Logitech Media Server www port."
-  :type 'string
-  :group 'lms)
-
-(defcustom lms-username nil
-  "Logitech Media Server username or nil."
-  :type 'string
-  :group 'lms)
-
-(defcustom lms-password nil
-  "Logitech Media Server password or nil."
+(defcustom lms-url "http://lms_server:9000"
+  "Logitech Media Server hostname or ip and port."
   :type 'string
   :group 'lms)
 
@@ -94,13 +73,13 @@
   :type 'string
   :group 'lms)
 
-(defcustom lms-ui-cover-width 400
+(defcustom lms-ui-cover-width 500
   "Cover image width."
   :type 'integer
   :group 'lms)
 
-(defcustom lms-ui-update-interval nil
-  "Time in seconds between UI updates.  Default nil, disabled.
+(defcustom lms-ui-update-interval 1
+  "Time in seconds between UI updates.  Default 1.  Set to nil to disable.
 Note that small values could freeze your Emacs use while refreshing window."
   :type 'integer
   :group 'lms)
@@ -120,19 +99,8 @@ Note that small values could freeze your Emacs use while refreshing window."
   :type 'integer
   :group 'lms)
 
-(defcustom lms-use-helm-in-library-browsing nil
-  "Use helm to select item in library browsing.  Default nil, use ido.
-Enabling this could make artists and albums retrieval slow."
-  :type 'boolean
-  :group 'lms)
 
-(defcustom lms-helm-candidate-number-limit 9999
-  "Maximum number of candidates to show in items selection when using helm.
-Set a smaller number if it is slow: 1000, 250, 100…"
-  :type 'integer
-  :group 'lms)
-
-;; faces
+;;;;; Faces
 (defface lms-playing-face
   '((t (:weight bold :foreground "DarkTurquoise")))
   "Face used for the playing symbol."
@@ -168,592 +136,48 @@ Set a smaller number if it is slow: 1000, 250, 100…"
   "Face used for the duration of the song."
   :group 'lms-faces)
 
+(defface lms-players-selected-face
+  '((t (:foreground "SteelBlue")))
+  "Face used for selected icon in players list."
+  :group 'lms-faces)
 
+(defface lms-players-isplaying-face
+  '((t (:foreground "RosyBrown")))
+  "Face used for isplaying in players list."
+  :group 'lms-faces)
+
+(defface lms-players-name-face
+  '((t (:foreground "CadetBlue")))
+  "Face used for player name in players list."
+  :group 'lms-faces)
+
+(defface lms-players-model-face
+  '((t (:foreground "SlateGray")))
+  "Face used for player model in players list."
+  :group 'lms-faces)
+
+(defface lms-players-playerid-face
+  '((t (:foreground "gray60")))
+  "Face used for player id in players list."
+  :group 'lms-faces)
+
+(defface lms-players-ip-face
+  '((t (:foreground "gray40")))
+  "Face used for player ip in players list."
+  :group 'lms-faces)
+
+(defface lms-players-power-face
+  '((t (:foreground "Maroon")))
+  "Face used for ispower in players list."
+  :group 'lms-faces)
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; Core
-
-;;;;; Module internal variables
-(defvar lms-process-name "LMS"
-  "LMS process name.")
-
-(defvar lms-buffer-name "*lms*"
-  "LMS buffer name.")
-
-(defvar lms--process nil
-  "LMS process.")
-
-(defvar lms--results nil
-  "Internal LMS communications results list.")
-
-(defvar lms--players nil
-  "List of cached players.")
-
-(defvar lms--default-playerid nil
-  "Internal default player playerid.")
-
-(defvar lms--temp nil
-  "Internal string buffer for communications with LMS server.")
-
-(defvar lms--ui-timer nil
-  "LMS UI upgrade timer.")
-
-(defvar lms--ui-last-id nil
-  "LMS UI last track id shown in Playing Now.")
-
-(defvar lms--ui-last-time nil
-  "LMS UI last track time shown in Playing Now.")
-
-
-;;;;; Auxiliar internal functions
-(defun lms--split-string-with-max (string delimiter max)
-  "Split STRING by DELIMITER, returning no more than MAX substrings."
-  (let* ((tmp (split-string string delimiter))
-         (lst (seq-take tmp (1- max))))
-    (add-to-list 'lst (string-join (seq-drop tmp (1- max)) delimiter) t)
-    (seq-filter #'(lambda (x) (not (string-empty-p x))) lst)))
-
-(defun lms--handle-server-reply (process content)
-  "Gets invoked whenever the server PROCESS sends data CONTENT to the client."
-  (setq lms--temp (concat lms--temp content))
-  (when (string= (substring lms--temp -1) "\n")
-    (push (string-trim lms--temp) lms--results)
-    (setq lms--temp nil)))
-
-(defun lms--sentinel-function (process event)
-  "Gets called when the status of the network connection PROCESS change with EVENT."
-  (message "LMS: %s" (string-trim (format "%S" event))))
-
-(defun lms--running-status ()
-  "Return LMS process status as string, or nil if not running."
-  (let ((st (and lms--process (process-status lms--process))))
-    (when st
-      (string-trim (format "%S" st)))))
-
-(defsubst lms--send-command (cmd)
-  "Send command CMD to LMS."
-  (process-send-string lms--process (concat cmd "\n")))
-
-(defun lms--send-command-get-response (cmd)
-  "Send command CMD to LMS and get response."
-  (lms--send-command cmd)
-  (when (string-suffix-p "?" cmd)
-    (setq cmd (substring cmd 0 -1)))
-  ;; LMS returns : char encoded
-  (setq cmd (replace-regexp-in-string ":" "%3A" cmd))
-  ;; LMS returns !'() chars not encoded
-  (dolist (x '(("%21" . "!") ("%27" . "'") ("%28" . "(") ("%29" . ")")))
-    (setq cmd (replace-regexp-in-string (car x) (cdr x) cmd)))
-  (let* ((continue t)
-         data)
-    (while continue
-      (setq data (pop lms--results))
-      (if (string-prefix-p cmd data)
-          (setq continue nil)
-        (push data lms--results)
-        (sleep-for .1)))
-    (string-trim (string-remove-prefix cmd data))))
-
-(defun lms--build-list-from-string-attrs (buf attrs)
-  "Return a list of plist from BUF string and ATTRS."
-  (let* (results
-         (build-plist (lambda (attrs)
-                       (let (tmp)
-                         (dolist (a attrs tmp)
-                           (setq tmp (append tmp (list (intern a) nil)))))))
-         (vars (funcall build-plist attrs))
-         (buf (substring buf (string-match (car attrs) buf))))
-    (dolist (e (split-string buf))
-      (dolist (attr attrs)
-        (when (string-prefix-p attr e) ; found a valid attr
-          (when (plist-get vars (intern attr)) ; element with same attr already exists -> new bundle
-            (add-to-list 'results vars)
-            (setq vars (funcall build-plist attrs)))
-          (plist-put vars (intern attr) (cadr (split-string e "%3A"))))))
-    (add-to-list 'results vars)
-    (reverse results)))
-
-
-;;;;; Players
-(defun lms-get-players (&optional force-populate)
-  "Return players from internal variable or ask server if FORCE-POPULATE is t."
-  (if (and lms--players (not force-load-messages))
-      lms--players
-    (let* ((numplayers (string-to-number (lms--send-command-get-response "player count ?")))
-           (cmd (format "players 0 %d" numplayers))
-           (data (split-string (lms--send-command-get-response cmd)))
-           players player)
-      (unless (string= (car data) (url-hexify-string (format "count:%d" numplayers)))
-        (error "LMS: undefined number of players"))
-      (dolist (l (cdr data))
-        (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
-               (k (intern (url-unhex-string (car pair))))
-               (v (url-unhex-string (cadr pair))))
-          (when (and player (string= (car pair) "playerindex"))
-            (push player players)
-            (setq player nil))
-          (setq player (plist-put player k v))))
-      (when player
-        (push player players))
-      (reverse players))))
-
-(defun lms-get-players-name ()
-  "Get players name as a list."
-  (mapcar (lambda (p) (plist-get p 'name)) (lms-get-players)))
-
-(defun lms-get-playerid-from-name (name)
-  "Get playerid from player NAME."
-  (let ((players (lms-get-players))
-        (playerid))
-    (dolist (p players playerid)
-      (when (string= (plist-get p 'name) name)
-        (setq playerid (plist-get p 'playerid))))))
-
-(defun lms-get-playername-from-id (playerid)
-  "Get player name from PLAYERID."
-  (let ((players (lms-get-players))
-        (playername))
-    (dolist (p players playername)
-      (when (string= (plist-get p 'playerid) playerid)
-        (setq playername (plist-get p 'name))))))
-
-(defun lms-select-player-by-name (name)
-  "Select player by NAME."
-  (if (seq-some (lambda (x) (string= x name)) (lms-get-players-name))
-      (setq lms--default-playerid (lms-get-playerid-from-name name))
-    (error "LMS: No player found with '%s' name" name)))
-
-
-;;;;; Connect / Quit
-(defun lms-connect ()
-  "Connect to LMS host."
-  (interactive)
-  (setq lms--results nil)
-  (lms-quit)
-  (ignore-errors
-    (setq lms--process (open-network-stream lms-process-name lms-buffer-name
-                                            lms-hostname lms-telnet-port)))
-  (unless (processp lms--process)
-    (error "ERROR: Can't connect to LMS server. Please verify you have customized hostname, port and credentials."))
-  (set-process-coding-system lms--process 'utf-8 'utf-8)
-  (set-process-filter lms--process 'lms--handle-server-reply)
-  (set-process-sentinel lms--process 'lms--sentinel-function)
-  (when (and lms-username lms-password)
-    (lms--send-command (format "login %s %s" lms-username lms-password)))
-  (setq lms--players (lms-get-players t))
-  (setq lms--default-playerid (lms-get-playerid-from-name
-                               (if (seq-some (lambda (x) (string= x lms-default-player)) (lms-get-players-name))
-                                   lms-default-player
-                                 nil)))
-  (message "Connected to LMS server %s:%d, default player: %s" lms-hostname lms-telnet-port
-           (if lms--default-playerid lms-default-player "[None selected]")))
-
-(defun lms-quit ()
-  "Quit LMS connection and close buffer."
-  (interactive)
-  (when lms--ui-timer
-    (cancel-timer lms--ui-timer))
-  (when (process-live-p lms--process)
-    (delete-process lms--process)
-    (when (bufferp lms-buffer-name)
-      (kill-buffer lms-buffer-name))
-    (setq lms--process nil)))
-
-
-;;;;; Power
-(defun lms-player-toggle-power (&optional playerid)
-  "Toggle power for PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (message "LMS: toggle power for player '%s'" (lms-get-playername-from-id playerid))
-  (lms--send-command (format "%s power" playerid)))
-
-(defun lms-player-power-on (&optional playerid)
-  "Power on PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (message "LMS: power on player '%s'" (lms-get-playername-from-id playerid))
-  (lms--send-command (format "%s power 1" playerid)))
-
-(defun lms-player-power-off (&optional playerid)
-  "Power on PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (message "LMS: power off player '%s'" (lms-get-playername-from-id playerid))
-  (lms--send-command (format "%s power 0" playerid)))
-
-
-;;;;; Volume
-(defun lms-player-toggle-mute (&optional playerid)
-  "Toggle mute for PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (message "LMS: toggle mute for player '%s'" (lms-get-playername-from-id playerid))
-  (lms--send-command (format "%s mixer muting toggle" playerid)))
-
-(defun lms-player-get-volume (&optional playerid)
-  "Get VOLUME as string (0..100) for PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command-get-response (format "%s mixer volume ?" playerid)))
-
-(defun lms-player-set-volume (volume &optional playerid)
-  "Set VOLUME for PLAYERID device or default.
-VOLUME is a string which can be a relative value (ex +5 or -7) or absolute."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (message "LMS: set volume %s for player '%s'" volume (lms-get-playername-from-id playerid))
-  (lms--send-command (format "%s mixer volume %s" playerid volume)))
-
-(defun lms-player-volume-up (&optional playerid)
-  "Up +5 volume for PLAYERID device or default."
-  (interactive)
-  (lms-player-set-volume "+5" playerid))
-
-(defun lms-player-volume-down (&optional playerid)
-  "Up -5 volume for PLAYERID device or default."
-  (interactive)
-  (lms-player-set-volume "-5" playerid))
-
-
-;;;;; Playing control
-(defun lms-playing-toggle-pause (&optional playerid)
-  "Toggle play/pause for PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s pause" playerid)))
-
-(defun lms-playing-play (&optional playerid)
-  "Play PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s play" playerid)))
-
-(defun lms-playing-pause (&optional playerid)
-  "Pause PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s pause 1" playerid)))
-
-(defun lms-playing-stop (&optional playerid)
-  "Stop PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s stop" playerid)))
-
-(defun lms-playing-seek (position &optional playerid)
-  "Seek to POSITION PLAYERID device or default."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s time %f" playerid position)))
-
-
-;;;;; Playlist track control
-(defun lms-playlist-track-control (index &optional playerid)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist index %s" playerid index)))
-
-(defun lms-playlist-first (&optional playerid)
-  "Play first track on playlist on PLAYERID."
-  (interactive)
-  (lms-playlist-track-control "0" playerid))
-
-(defun lms-playlist-next (&optional playerid)
-  "Play next track on playlist on PLAYERID."
-  (interactive)
-  (lms-playlist-track-control "+1" playerid))
-
-(defun lms-playlist-prev (&optional playerid)
-  "Play previous track on playlist on PLAYERID."
-  (interactive)
-  (lms-playlist-track-control "-1" playerid))
-
-(defun lms-playlist-play-track (index &optional playerid)
-  "Play track INDEX from playlist on PLAYERID."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist index %s" lms--default-playerid index)))
-
-(defun lms-playlist-delete-track (index &optional playerid)
-  "Remove track INDEX from playlist on PLAYERID."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist delete %s" lms--default-playerid index)))
-
-(defun lms-playlist-clear (&optional playerid)
-  "Clear playlist on PLAYERID."
-  (interactive)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist clear" playerid)))
-
-(defun lms-playlist-get-repeat (&optional playerid)
-  "Get playlist repeat mode on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command-get-response (format "%s playlist repeat ?" lms--default-playerid)))
-
-(defun lms-playlist-set-repeat (repeat &optional playerid)
-  "Set playlist REPEAT mode on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist repeat %s" lms--default-playerid repeat)))
-
-(defun lms-playlist-get-shuffle (&optional playerid)
-  "Get playlist shuffle mode on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command-get-response (format "%s playlist shuffle ?" lms--default-playerid)))
-
-(defun lms-playlist-set-shuffle (shuffle &optional playerid)
-  "Set playlist SHUFFLE mode on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlist shuffle %s" lms--default-playerid shuffle)))
-
-(defun lms-get-playlist (&optional playerid)
-  "Get playlist for PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (let* ((idx (string-to-number (lms--send-command-get-response (format "%s playlist index ?" playerid)))) ; 0-based
-         (tot (string-to-number (lms--send-command-get-response (format "%s playlist tracks ?" playerid))))
-         (buf (lms--send-command-get-response (format "%s status 0 1000 tags:alydt" playerid)))
-         (lst (lms--build-list-from-string-attrs buf '("id" "title" "artist" "album" "year" "tracknum" "duration"))))
-    (dotimes (i tot lst)
-      (let ((track (nth i lst)))
-        (setq track (plist-put track 'duration (string-to-number (plist-get track 'duration))))
-        (setq track (plist-put track 'index i))
-        (setq track (plist-put track 'current (eq idx i)))))))
-
-
-;;;;; library
-(defun lms-get-virtual-libraries ()
-  "Get a list of virtual libraries."
-  (let ((buf (lms--send-command-get-response "libraries 0 100")))
-    (lms--build-list-from-string-attrs buf '("id" "name"))))
-
-;; library_id?
-(defun lms-get-artists (&optional max vlibid)
-  "Get a list of 10000 or MAX artists.
-If VLIBID is specified use only that virtual library."
-  (unless max
-    (setq max 10000))
-  (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-         (buf (lms--send-command-get-response (format "artists 0 %d%s" max vlib))))
-    (lms--build-list-from-string-attrs buf '("id" "artist"))))
-
-(defun lms-get-albums (&optional max vlibid)
-  "Get a list of 10000 or MAX albums.
-If VLIBID is specified use only that virtual library."
-  (unless max
-    (setq max 10000))
-  (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-         (buf (lms--send-command-get-response (format "albums 0 %d tags:lay sort:yearartistalbum%s" max vlib))))
-    (lms--build-list-from-string-attrs buf '("id" "album" "artist" "year"))))
-
-(defun lms-get-years (&optional max vlibid)
-  "Get a list of 1000 or MAX years.
-If VLIBID is specified use only that virtual library."
-  (unless max
-    (setq max 1000))
-  (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-         (buf (lms--send-command-get-response (format "years 0 %d hasAlbums:1%s" max vlib)))
-         (lst (lms--build-list-from-string-attrs buf '("year"))))
-    (seq-sort #'string< (seq-filter #'stringp (apply #'append lst)))))
-
-(defun lms-get-genres (&optional max vlibid)
-  "Get a list of 1000 or MAX genres.
-If VLIBID is specified use only that virtual library."
-  (unless max
-    (setq max 1000))
-  (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-         (buf (lms--send-command-get-response (format "genres 0 %d%s" max vlib))))
-    (lms--build-list-from-string-attrs buf '("id" "genre"))))
-
-;; artists
-(defun lms-get-artist-name-from-id (artistid)
-  "Get artist name from ARTISTID."
-   (let ((buf (lms--send-command-get-response (format "artists 0 1 artist_id:%s" artistid))))
-     (plist-get (car (lms--build-list-from-string-attrs buf '("artist"))) 'artist)))
-
-(defun lms-get-artist-id-from-name (artist)
-  "Get artistid from ARTIST name."
-  ;; (let* ((buf (lms--send-command-get-response (format "artists 0 100 search:'%s'" (url-hexify-string artist))))
-  (let* ((artist2 (url-hexify-string (encode-coding-string artist 'utf-8)))
-         (buf (lms--send-command-get-response (format "artists 0 100 search:'%s'" artist2)))
-         (lst (lms--build-list-from-string-attrs buf '("id" "artist"))))
-    (plist-get (seq-find #'(lambda (x) (string= (lms--unhex-encode (plist-get x 'artist)) artist)) lst) 'id)))
-
-(defun lms-get-artist-id-from-trackid (trackid)
-  "Get artistid from TRACKID."
-   (let ((buf (lms--send-command-get-response (format "artists 0 1 track_id:%s" trackid))))
-     (plist-get (car (lms--build-list-from-string-attrs buf '("id"))) 'id)))
-
-;; albums
-(defun lms-get-album-name-from-id (albumid)
-  "Get album name from ALBUMID."
-   (let ((buf (lms--send-command-get-response (format "albums 0 1 album_id:%s" albumid))))
-    (plist-get (car (lms--build-list-from-string-attrs buf '("album"))) 'album)))
-
-(defun lms-get-album-id-from-name (album &optional artist)
-  "Get albumid name from ALBUM name and optional ARTIST."
-  (let* ((buf (lms--send-command-get-response (format "albums 0 100 search:%s tags:aly" (url-hexify-string album))))
-         (lst (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
-    (if artist
-        (plist-get (seq-find #'(lambda (x) (and
-                                            (string= (lms--unhex-encode (plist-get x 'album)) album)
-                                            (string= (lms--unhex-encode (plist-get x 'artist)) artist)))
-                             lst)
-                   'id)
-      (plist-get (seq-find #'(lambda (x) (string= (lms--unhex-encode (plist-get x 'album)) album)) lst) 'id))))
-
-(defun lms-get-recent-albums (n)
-  "Get most recent N albums."
-  (let* ((cmd (format "albums 0 %d sort:new tags:aly" n))
-         (buf (lms--send-command-get-response cmd)))
-    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
-
-(defun lms-get-albums-from-artistid (artistid)
-  "Get a list with albums from ARTISTID."
-  (let* ((cmd (format "albums 0 1000 artist_id:%s sort:yearartistalbum tags:aly" artistid))
-         (buf (lms--send-command-get-response cmd)))
-    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
-
-(defun lms-get-albums-from-year (year)
-  "Get a list with albums from YEAR."
-  (let* ((cmd (format "albums 0 1000 year:%s sort:yearartistalbum tags:aly" year))
-         (buf (lms--send-command-get-response cmd)))
-    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
-
-(defun lms-get-albums-from-genre-id (genreid)
-  "Get a list with albums from GENREID."
-  (let* ((cmd (format "albums 0 10000 genre_id:%s sort:yearartistalbum tags:aly" genreid))
-         (buf (lms--send-command-get-response cmd)))
-    (lms--build-list-from-string-attrs buf '("id" "album" "year" "artist"))))
-
-(defun lms-get-random-albums (n &optional vlibid)
-  "Get a list of N random albums.
-If VLIBID is specified use only that virtual library."
-   (let* ((vlib (if vlibid (format " library_id:%s" vlibid) ""))
-          (buf (lms--send-command-get-response (format "albums 0 %d tags:lay sort:random%s" n vlib))))
-    (lms--build-list-from-string-attrs buf '("id" "album" "artist" "year"))))
-
-;; tracks
-(defun lms-get-current-track ()
-  "Get current track as a plist."
-  (let ((st (lms--get-status)))
-    (list
-     'id (plist-get st 'id)
-     'artist (plist-get st 'artist)
-     'title (plist-get st 'title)
-     'album (plist-get st 'album)
-     'year (plist-get st 'year)
-     'tracknum (plist-get st 'tracknum)
-     'duration (string-to-number (plist-get st 'duration)) ; seconds
-     'time (string-to-number (plist-get st 'time))         ; seconds
-     'rating (string-to-number (plist-get st 'rating))     ; 0-100
-     'playlist_idx (string-to-number (plist-get st 'playlist_cur_index)) ; 0-based
-     'playlist_tot (string-to-number (plist-get st 'playlist_tracks)))))
-
-(defun lms-get-track-info (trackid)
-  "Get track TRACKID information as a plist."
-  (let* ((cmd (format "songinfo 0 100 track_id:%s tags:alytgiqdROfuovrTImnDU" trackid))
-         (data (split-string (lms--send-command-get-response cmd)))
-         trackinfo)
-    (dolist (l data trackinfo)
-      (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
-             (k (intern (url-unhex-string (car pair))))
-             (v (url-unhex-string (cadr pair))))
-        (setq trackinfo (plist-put trackinfo k v))))))
-
-(defun lms-get-tracks-from-albumid (albumid)
-  "Get a list of tracks from ALBUMID.  Sorted by discnum, then by tracknum."
-  (let* ((cmd (format "tracks 0 1000 album_id:%s tags:altydi" albumid))
-         (buf (lms--send-command-get-response cmd))
-         (lst (lms--build-list-from-string-attrs buf '("id" "title" "artist" "album" "tracknum" "duration" "year" "disc"))))
-    (seq-sort #'(lambda (x y) (let ((xdn (string-to-number (or (plist-get x 'disc) "")))
-                                    (xtn (string-to-number (or (plist-get x 'tracknum) "")))
-                                    (ydn (string-to-number (or (plist-get y 'disc) "")))
-                                    (ytn (string-to-number (or (plist-get y 'tracknum) ""))))
-                                (if (= xdn ydn)
-                                    (< xtn ytn)
-                                  (< xdn ydn))))
-              lst)))
-
-(defun lms-get-current-track-artistid (&optional playerid)
-  "Return current track artistid on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (let ((buf (lms--send-command-get-response (format "%s status - 1 tags:s" playerid))))
-    (plist-get (car (lms--build-list-from-string-attrs buf '("id" "artist_id"))) 'artist_id)))
-
-(defun lms-get-current-track-albumid (&optional playerid)
-  "Return current track albumid on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (let ((buf (lms--send-command-get-response (format "%s status - 1 tags:e" playerid))))
-    (plist-get (car (lms--build-list-from-string-attrs buf '("id" "album_id"))) 'album_id)))
-
-(defun lms-get-current-track-year (&optional playerid)
-  "Return current track year on PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (let ((buf (lms--send-command-get-response (format "%s status - 1 tags:y" playerid))))
-    (plist-get (car (lms--build-list-from-string-attrs buf '("id" "year"))) 'year)))
-
-;; genres
-(defun lms-get-genre-id-from-name (genre)
-  "Get genreid from GENRE name."
-  (let* ((genre2 (url-hexify-string genre))
-         (cmd (format "genres 0 100 genre:%s" genre2))
-         (buf (lms--send-command-get-response cmd)))
-    (plist-get (seq-find #'(lambda (g) (string= (plist-get g 'genre) genre2))
-                         (lms--build-list-from-string-attrs buf '("id" "genre")))
-               'id)))
-
-;;;;; Misc
-(defun lms--get-status (&optional playerid)
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (let* ((cmd (format "%s status - 1 tags:adlRytK" playerid))
-         (data (split-string (lms--send-command-get-response cmd)))
-         status)
-    (dolist (l data status)
-      (let* ((pair (lms--split-string-with-max l "%3A" 2)) ; :-char
-             (k (intern (url-unhex-string (car pair))))
-             (v (url-unhex-string (cadr pair))))
-        (setq status (plist-put status k v))))))
-
-(defun lms-get-library-totals ()
-  "Get library totals as plist."
-  (let (totals)
-    (dolist (n '("songs" "artists" "albums" "duration") totals)
-      (setq totals (plist-put totals (intern n)
-                              (lms--send-command-get-response (format "info total %s ?" n)))))))
-
-(defun lms-set-track-rating (trackid rating)
-  "Set RATING (percent) to TRACKID."
-  (lms--send-command (format "trackstat setratingpercent %s %s" trackid rating)))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;; UI
+;;;; Module internal variables
+;;;;; Documentation
 (defvar lms-ui-docs "#+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna
-#+DATE: 2018/12/09
+#+DATE: 2020/06/14
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -763,8 +187,9 @@ It requires emacs version 25 or higher.
 
 More information on what a *squeezebox controller* is at https://inigo.katxi.org/blog/2017/07/31/lms_el.html.
 
-Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
+Quick instructions: customize some basic parameters such as 'lms-url' and run it with *lms* or *lms-ui*.
 From there, you could read complete documentation after pressing *h* key.
+You can also run 'emacsclient -e \"(lms-float)\"' to display an independent small frame.
 
 Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://hg.serna.eu/emacs/lms][the code repository]] as well.
 
@@ -782,23 +207,19 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------------------+-----------|
-| Parameter                        | Description                                             | Default   |
-|----------------------------------+---------------------------------------------------------+-----------|
-| lms-hostname                     | Logitech Media Server hostname or ip                    | localhost |
-| lms-telnet-port                  | Logitech Media Server telnet port                       | 9090      |
-| lms-html-port                    | Logitech Media Server www port                          | 80        |
-| lms-username                     | Logitech Media Server username or nil                   | nil       |
-| lms-password                     | Logitech Media Server password or nil                   | nil       |
-| lms-default-player               | Name of default player                                  | nil  (1)  |
-| lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
-| lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
-| lms-number-recent-albums         | Number of recent albums to show                         | 25        |
-| lms-number-random-albums         | Number of random albums to show                         | 25        |
-| lms-number-random-songs          | Number of random songs to show                          | 50        |
-| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
-| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
-|----------------------------------+---------------------------------------------------------+-----------|
+|----------------------------------+---------------------------------------------------------+------------------------|
+| Parameter                        | Description                                             | Default                |
+|----------------------------------+---------------------------------------------------------+------------------------|
+| lms-url                          | Logitech Media Server hostname or ip and port           | http://lms_server:9000 |
+| lms-default-player               | Name of default player                                  | nil  (1)               |
+| lms-ui-cover-width               | Cover image width                                       | 500  (2)               |
+| lms-ui-update-interval           | Time in seconds between UI updates                      | 1    (3)               |
+| lms-number-recent-albums         | Number of recent albums to show                         | 25                     |
+| lms-number-random-albums         | Number of random albums to show                         | 25                     |
+| lms-number-random-songs          | Number of random songs to show                          | 50                     |
+| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)               |
+| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)               |
+|----------------------------------+---------------------------------------------------------+------------------------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
@@ -824,9 +245,10 @@ Main window showing information about current track and player status.
 The actions triggered by pressing keys refer to the current track.
 ** Key bindings
 |------------+--------------------------------|
-| Ctrl-w     | change player power state      |
 | Ctrl-p     | select player                  |
+| Ctrl-w     | change player power state      |
 | Ctrl-r     | change track rating            |
+| Ctrl-v     | set volume                     |
 | <space>    | toggle play/pause              |
 | P          | play                           |
 | S          | stop playing                   |
@@ -840,8 +262,8 @@ The actions triggered by pressing keys refer to the current track.
 | g          | update window contents         |
 | i          | display track information      |
 | l          | display playlist               |
-| T          | show all tracks of album       |
 | A          | show all albums by artist      |
+| L          | show all tracks of album       |
 | Y          | show all albums of this year   |
 | M          | browse music libray            |
 | h, ?       | show this documentation        |
@@ -860,6 +282,18 @@ Previous/next track only works when *Track information* window was called from a
 | q          | close window            |
 |------------+-------------------------|
 
+* Players list
+Players list.
+** Key bindings
+|--------------+------------------------------------|
+| <up>, <down> | move cursor                        |
+| <enter>      | select player and close window     |
+| <space>      | toggle player play/pause           |
+| Ctrl-w       | toggle player power state          |
+| h, ?         | show this documentation            |
+| q            | close window                       |
+|--------------+------------------------------------|
+
 * Playlist
 Playlist view.
 The actions triggered by pressing keys refer to the track under cursor.
@@ -874,8 +308,8 @@ The actions triggered by pressing keys refer to the track under cursor.
 | c u          | remove tracks from start to cursor |
 | c f          | remove tracks from cursor to end   |
 | g            | update window contents             |
-| T            | show all tracks of album           |
 | A            | show all albums by artist          |
+| L            | show all tracks of album           |
 | Y            | show all albums of this year       |
 | h, ?         | show this documentation            |
 | q            | close window                       |
@@ -904,7 +338,7 @@ The actions triggered by pressing keys refer to the track under cursor.
 | <enter>, i   | display track information    |
 | A            | show all albums by artist    |
 | Y            | show all albums of this year |
-| p            | add songs to playlist        |
+| p            | add song to playlist         |
 | P            | add all songs to playlist    |
 | h, ?         | show this documentation      |
 | q            | close window                 |
@@ -912,9 +346,22 @@ The actions triggered by pressing keys refer to the track under cursor.
 "
   "LMS documentation.")
 
-;;;;; Module internal variables
-(defvar lms--current-trackid nil
-  "Temporal trackid variable while in 'playing now' view.")
+
+;;;;; Variables
+(defvar lms--players nil
+  "List of cached players.")
+
+(defvar lms--default-playerid nil
+  "Internal default player playerid.")
+
+(defvar lms--ui-timer nil
+  "LMS UI display refresh timer.")
+
+(defvar lms--ui-current-trackid nil
+  "LMS UI last track id shown in Playing Now.")
+
+(defvar lms--ui-editing-p nil
+  "A flag to indicate buffer is been edited right now.")
 
 (defvar lms--ui-track-info-trackid nil
   "Temporal variable to save in 'track info' view.")
@@ -925,12 +372,325 @@ The actions triggered by pressing keys refer to the track under cursor.
 (defvar lms--ui-pl-tracks nil
   "Temporal tracks list variable in 'playlist' view.")
 
+(defvar lms--ui-tracks-lst nil
+  "Temporal list variable in 'tracks' view.")
 
-;;;;; Auxiliar UI functions
-(defun lms--unhex-encode (str)
-  "Unhexify and encode STR in utf-8."
-   (decode-coding-string (url-unhex-string str) 'utf-8))
+(defvar lms--ui-yaal-lst nil
+  "Temporal list variable in 'year-album-artist' view.")
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; API
+;;;;; Initialization
+(defun lms--init ()
+  "LMS initialization."
+  (lms--get-players)
+  (setq lms--default-playerid
+        (lms--get-playerid-from-name
+         (or lms-default-player (completing-read "Select player: " (lms--get-players-name)))))
+  (unless lms--default-playerid
+    (error "LMS: can't run without player")))
+
+(defun lms-quit ()
+  "Quit LMS connection and close buffer."
+  (interactive)
+  (when lms--ui-timer
+    (cancel-timer lms--ui-timer))
+  (setq lms-default-player (lms--get-playername-from-id lms--default-playerid)
+        lms--default-playerid nil
+        lms--players nil
+        lms--ui-current-trackid nil
+        lms--ui-timer nil))
+
+
+;;;;; LMS server querying
+(defun lms--split-string (txt)
+  "Split string TXT respecting parts inside quotes."
+  (let (lst acc in-substring)
+    (dolist (c (string-to-list txt))
+      (if in-substring
+          (if (= c in-substring)
+              (progn
+                (setq in-substring nil)
+                (push c acc))
+            (push c acc))
+        (if (or (= c ?') (= c ?\"))
+            (progn
+              (setq in-substring c)
+              (push c acc))
+          (if (= c 32)  ; space
+              (progn
+                (push (string-join (mapcar 'char-to-string (nreverse acc))) lst)
+                (setq acc nil))
+            (push c acc)))))
+    (when acc
+      (push (string-join (mapcar 'char-to-string (nreverse acc))) lst))
+    (nreverse lst)))
+
+(defun lms--cmd (query &optional playerid)
+  "Sync HTTP request QUERY to LMS server.  PLAYERID is optional.
+QUERY is a string."
+  (setq playerid (or playerid lms--default-playerid ""))
+  (let* ((json-array-type 'list)
+         (url-request-method "POST")
+         (url-request-extra-headers '(("Content-Type" . "application/json")))
+         (url-request-data (encode-coding-string
+                            (json-encode-alist `[(method . "slim.request") (params . [,playerid ,(lms--split-string query)])])
+                            'utf-8))
+         (response (with-current-buffer (url-retrieve-synchronously (concat lms-url "/jsonrpc.js") t t 1)
+                     (goto-char (point-min))
+                     (re-search-forward "^$")
+                     (delete-region (point) (point-min))
+                     (decode-coding-string (buffer-string) 'utf-8))))
+    (unless (string= "" response)
+      (alist-get 'result (json-read-from-string response)))))
+
+
+;;;;; Players
+(defun lms--get-players ()
+  "Get players and store to a variable as cache."
+  (setq lms--players (alist-get 'players_loop (lms--cmd "serverstatus -"))))
+
+(defun lms--get-players-name ()
+  "Get a list of players name."
+  (unless lms--players
+    (lms--get-players))
+  (mapcar #'(lambda (p) (alist-get 'name p)) lms--players))
+
+(defun lms--get-playerid-from-name (playername)
+  "Get playerid from player PLAYERNAME."
+  (unless lms--players
+    (lms--get-players))
+  (let (playerid)
+    (dolist (p lms--players)
+      (when (string= playername (alist-get 'name p))
+        (setq playerid (alist-get 'playerid p))))
+    playerid))
+
+(defun lms--get-playername-from-id (playerid)
+  "Get playername from player PLAYERID."
+  (unless lms--players
+    (lms--get-players))
+  (let (playername)
+    (dolist (p lms--players)
+      (when (string= playerid (alist-get 'playerid p))
+        (setq playername (alist-get 'name p))))
+    playername))
+
+
+;;;;; Playing control
+(defun lms-playing-toggle-pause ()
+  "Toggle play/pause."
+  (interactive)
+  (lms--cmd "pause"))
+
+(defun lms-playing-play ()
+  "Play player."
+  (interactive)
+  (lms--cmd "play"))
+
+(defun lms-playing-pause ()
+  "Pause player."
+  (interactive)
+  (lms--cmd "pause 1"))
+
+(defun lms-playing-stop ()
+  "Stop player."
+  (interactive)
+  (lms--cmd "stop"))
+
+
+;;;;; Volume
+(defun lms-player-toggle-mute ()
+  "Toggle mute for player."
+  (interactive)
+  (lms--cmd "mixer muting toggle"))
+
+(defun lms-player-get-volume ()
+  "Get VOLUME as string (0..100) for player."
+  (interactive)
+  (string-to-number (alist-get '_volume (lms--cmd "mixer volume ?"))))
+
+(defun lms-player-set-volume (volume)
+  "Set VOLUME for player.
+VOLUME is a string which can be a relative (ex +5 or -7) or absolute value."
+  (interactive "sVolume: ")
+  (lms--cmd (format "mixer volume %s" volume)))
+
+
+;;;;; Power
+(defun lms-player-toggle-power ()
+  "Toggle power for player."
+  (interactive)
+  (lms--cmd "power"))
+
+(defun lms-player-power-on ()
+  "Power on player."
+  (interactive)
+  (lms--cmd "power 1"))
+
+(defun lms-player-power-off ()
+  "Power off player."
+  (interactive)
+  (lms--cmd "power 0"))
+
+
+;;;;; PlayList
+(defun lms-playlist-play-track (index)
+  "Play track INDEX from playlist.
+Must be a string.  Can be a relative number such as \"-1\"."
+  (interactive "sTrack index: ")
+  (lms--cmd (format "playlist index %s" index)))
+
+(defun lms-playlist-delete-track (index)
+  "Remove track INDEX from playlist."
+  (interactive)
+  (lms--cmd (format "playlist delete %s" index)))
+
+(defun lms-playlist-clear ()
+  "Clear playlist."
+  (interactive)
+  (lms--cmd "playlist clear"))
+
+(defun lms-playlist-get-repeat ()
+  "Get playlist repeat mode of player.  Return a string."
+  (alist-get '_repeat (lms--cmd "playlist repeat ?")))
+
+(defun lms-playlist-set-repeat (repeat)
+  "Set playlist REPEAT mode (as int) of player."
+  (lms--cmd (format "playlist repeat %d" repeat)))
+
+(defun lms-playlist-get-shuffle ()
+  "Get playlist shuffle mode of player.  Return a string."
+  (alist-get '_shuffle (lms--cmd "playlist shuffle ?")))
+
+(defun lms-playlist-set-shuffle (shuffle)
+  "Set playlist SHUFFLE mode (as int) of player."
+  (lms--cmd (format "playlist shuffle %d" shuffle)))
+
+(defun lms-playlistcontrol-action (object &optional question)
+  "Ask QUESTION about how to add/insert/replace OBJECT tracks to playlist."
+  (let ((act (car (read-multiple-choice (or question "Add to playlist?")
+                                        '((?a "add to end")
+                                          (?p "play next")
+                                          (?r "replace")))))
+        action)
+    (pcase act
+      (?a (setq action "add"))
+      (?p (setq action "insert"))
+      (?r (setq action "load")))
+    (lms--cmd (format "playlistcontrol cmd:%s %s" action object))))
+
+
+;;;;; Library
+;;;;;; Tracks
+(defun lms-track-set-rating (trackid rating)
+  "Set RATING (percent) to TRACKID."
+  (lms--cmd (format "trackstat setratingpercent %d %s" trackid rating)))
+
+(defun lms-get-current-track-albumid ()
+  "Get current track albumid."
+  (alist-get 'album_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:e")))))
+
+(defun lms-get-current-track-artistid ()
+  "Get current track artistid."
+  (alist-get 'artist_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:s")))))
+
+(defun lms-get-current-track-year ()
+  "Get current track year."
+  (alist-get 'year (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:y")))))
+
+(defun lms-get-tracks-from-albumid (albumid)
+  "Get a list of tracks from ALBUMID.  Sorted by discnum, then by tracknum."
+  (seq-sort #'(lambda (x y) (let ((xdn (or (alist-get 'disc x) 0))
+                                  (xtn (or (alist-get 'tracknum x) 0))
+                                  (ydn (or (alist-get 'disc y) 0))
+                                  (ytn (or (alist-get 'tracknum y) 0)))
+                              (if (= xdn ydn)
+                                  (< xtn ytn)
+                                (< xdn ydn))))
+            (alist-get 'titles_loop (lms--cmd (format "tracks 0 1000 album_id:%d tags:altydi" albumid)))))
+
+;;;;;; Artists
+(defun lms-get-artist-name-from-id (artistid)
+  "Get album name from ARTISTID."
+  (alist-get 'artist (cadr (assq 'artists_loop (lms--cmd (format "artists 0 1 artist_id:%d" artistid))))))
+
+(defun lms-get-artist-id-from-name (artistname)
+  "Get artist id from ARTISTNAME."
+  (alist-get 'id (cadr (assq 'artists_loop (lms--cmd (format "artists 0 100 search:'%s'" artistname))))))
+
+(defun lms-get-artists (&optional max vlibid)
+  "Get a list of 5000 or MAX artists.
+If VLIBID is specified use only that virtual library."
+  (setq max (or max 5000))
+  (let ((vlib (if vlibid (format " library_id:%s" vlibid) "")))
+    (mapcar #'(lambda (a) (alist-get 'artist a))
+            (alist-get 'artists_loop (lms--cmd (format "artists 0 %d%s" max vlib))))))
+
+;;;;;; Albums
+(defun lms-get-album-name-from-id (albumid)
+  "Get album name from ALBUMID."
+  (alist-get 'album (cadr (assq 'albums_loop (lms--cmd (format "albums 0 1 album_id:%d" albumid))))))
+
+(defun lms-get-album-id-from-name (albumname &optional artistname)
+  "Get albumid name from ALBUMNAME and optional ARTISTNAME."
+  (let ((lst (alist-get 'albums_loop (lms--cmd (format "albums 0 100 search:'%s' tags:al" albumname)))))
+    (alist-get 'id (if artistname
+                       (seq-find #'(lambda (x) (string= (alist-get 'artist x) artistname)) lst)
+                     (car lst)))))
+
+(defun lms-get-albums-from-artistid (artistid)
+  "Get a list with albums from ARTISTID."
+  (alist-get 'albums_loop (lms--cmd (format "albums 0 1000 artist_id:%d sort:yearartistalbum tags:aly" artistid))))
+
+(defun lms-get-albums-from-year (year)
+  "Get a list with albums from YEAR."
+  (alist-get 'albums_loop (lms--cmd (format "albums 0 1000 year:%d sort:yearartistalbum tags:aly" year))))
+
+(defun lms-get-albums-from-genreid (genreid)
+  "Get a list with albums from GENREID."
+  (alist-get 'albums_loop (lms--cmd (format "albums 0 10000 genre_id:%s sort:yearartistalbum tags:aly" genreid))))
+
+(defun lms-get-albums (&optional max vlibid)
+  "Get a list of 5000 or MAX albums.
+If VLIBID is specified use only that virtual library."
+  (setq max (or max 5000))
+  (let ((vlib (if vlibid (format " library_id:%s" vlibid) "")))
+    (mapcar #'(lambda (l) (alist-get 'album l))
+            (alist-get 'albums_loop (lms--cmd (format "albums 0 %d tags:lay sort:yearartistalbum%s" max vlib))))))
+
+(defun lms-get-recent-albums (n)
+  "Get most recent N albums."
+  (alist-get 'albums_loop  (lms--cmd (format "albums 0 %d sort:new tags:aly" n))))
+
+;;;;;; Years
+(defun lms-get-years (&optional max vlibid)
+  "Get a list of 1000 or MAX years.
+If VLIBID is specified use only that virtual library."
+  (setq max (or max 1000))
+  (let ((vlib (if vlibid (format " library_id:%s" vlibid) "")))
+    (seq-sort #'<
+              (mapcar #'(lambda (y) (cdar y))
+                      (alist-get 'years_loop (lms--cmd (format "years 0 %d hasAlbums:1%s" max vlib)))))))
+
+;;;;;; Genres
+(defun lms-get-genres (&optional max vlibid)
+  "Get a list of 1000 or MAX genres.
+If VLIBID is specified use only that virtual library."
+  (setq max (or max 1000))
+  (let ((vlib (if vlibid (format " library_id:%s" vlibid) "")))
+    (seq-sort #'string< (mapcar #'(lambda (g) (alist-get 'genre g))
+                                (alist-get 'genres_loop (lms--cmd (format "genres 0 %d%s" max vlib)))))))
+
+(defun lms-get-genreid-from-name (genre)
+  "Get genreid from GENRE name."
+  (alist-get 'id (seq-find #'(lambda (g) (when (string= genre (alist-get 'genre g)) (alist-get 'id g)))
+                           (alist-get 'genres_loop (lms--cmd "genres 0 1000")))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; UI helpers
 (defun lms--retrieve-url (url)
   "Retrieve data file from URL."
   (with-current-buffer (url-retrieve-synchronously url)
@@ -945,18 +705,20 @@ The actions triggered by pressing keys refer to the track under cursor.
 
 (defun lms--format-time (secs)
   "Format SECS to human readable form."
-  (if (> secs 86400)
+  (if (>= secs 86400)
       (format-seconds "%d days %hh %mm %ss" secs)
     (format-seconds (if (> secs 3599 ) "%h:%.2m:%.2s" "%m:%.2s") secs)))
 
 (defun lms--format-rating (rating)
   "Format RATING to human readable form."
-  (let ((r (/ rating 10))
-        str)
-    (dotimes (i r)
-      (setq str (concat str "★")))
-    (dotimes (i (- 10 r) str)
-      (setq str (concat str "☆")))))
+  (when (stringp rating)
+    (setq rating (string-to-number rating)))
+  (let ((r (/ rating 10)))
+    (concat (string-join (make-vector r "★")) (string-join (make-vector (- 10 r) "☆")))))
+
+(defun lms--format-volume (volume)
+  "Format VOLUME to human readable form."
+  (if (> volume 0) (format " 🔈 %s " volume) " 🔇 00 "))
 
 (defun lms--format-filesize (filesize)
   "Format FILESIZE to human readable form."
@@ -966,97 +728,80 @@ The actions triggered by pressing keys refer to the track under cursor.
         (format "%.2f KB" (/ filesize 1024.0))
       (format "%d Bytes" filesize))))
 
-(defun lms--format-repeat-mode (repeat)
-  "Format REPEAT mode to human readable form."
-  (pcase repeat
-    ("0" "No repeat")
-    ("1" "Repeat song")
-    ("2" "Repeat playlist")))
-
-(defun lms--format-shuffle-mode (shuffle)
-  "Format SHUFFLE mode to human readable form."
-  (pcase shuffle
-    ("0" "No shuffle")
-    ("1" "Shuffle by song")
-    ("2" "Shuffle by album")))
-
 (defun lms--format-mode (powerp mode)
   "Format POWERP & MODE to human readable form."
   (if powerp
       (pcase mode
         ("stop" "■")
         ("play" "▶")
-        ("pause" "▍▍"))
+        ("pause" "‖"))  ; "▍▍ ‖ ❘❘ "
     "off"))
 
-(defun lms--playlist-control (cmd object &optional playerid)
-  "Execute playlistcontrol CMD and OBJECT with optional PLAYERID."
-  (unless playerid
-    (setq playerid lms--default-playerid))
-  (lms--send-command (format "%s playlistcontrol cmd:%s %s" playerid cmd object)))
+(defun lms--format-repeat-mode (repeat)
+  "Format REPEAT mode to human readable form."
+  (pcase repeat
+    (0 "No repeat")
+    (1 "Repeat song")
+    (2 "Repeat playlist")))
 
-(defun lms--ask-playlistcontrol-action (&optional question)
-  "Ask QUESTION about how to add/insert/replace tracks to playlist."
-  (let* ((lst '("Add to end" "Play next" "Replace"))
-         (action (ido-completing-read (or question "Add to playlist? ") lst)))
-    (when (and action (seq-contains lst action))
-      (pcase action
-        ("Add to end" "add")
-        ("Play next" "insert")
-        ("Replace" "load")))))
+(defun lms--format-shuffle-mode (shuffle)
+  "Format SHUFFLE mode to human readable form."
+  (pcase shuffle
+    (0 "No shuffle")
+    (1 "Shuffle by song")
+    (2 "Shuffle by album")))
 
-(defsubst lms--unhex-utf8-string (s)
-  "Unhex and decode string S to UTF-8."
-  (decode-coding-string (url-unhex-string s) 'utf-8))
-
-(defsubst lms--helm-select-from-list (title lst fuzzy)
-  "Select item from list using helm."
-  (helm :sources (helm-build-sync-source title
-                   :candidates lst
-                   :candidate-number-limit lms-helm-candidate-number-limit
-                   :fuzzy-match fuzzy)
-        :buffer (format "*helm %s*" title)))
-
-
-;;;;; Main
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; UI
 ;;;###autoload
 (defun lms-ui ()
   "LMS UI entry point."
   (interactive)
-  (lms-ui-playing-now)
-  (switch-to-buffer "*LMS: Playing Now*")
-  (when lms-ui-update-interval
-    (setq lms--ui-timer (run-at-time nil lms-ui-update-interval 'lms-ui-playing-now-update))))
+  (if (get-buffer "*LMS: Playing Now*")
+      (switch-to-buffer "*LMS: Playing Now*")
+    (lms--init)
+    (lms-ui-playing-now)
+    (switch-to-buffer "*LMS: Playing Now*")
+    (when (and lms-ui-update-interval (not (timerp lms--ui-timer)))
+      (setq lms--ui-timer (run-at-time nil lms-ui-update-interval 'lms--ui-playing-now-update)))))
 
 ;;;###autoload
 (defalias 'lms 'lms-ui)
 
-(defun lms-ui-playing-now-update ()
-  "Update Playing Now screen."
-  (let* ((buf (lms--send-command-get-response (format "%s status - 1" lms--default-playerid)))
-         (id (replace-regexp-in-string ".* id%3A\\(.*\\) .*" "\\1" buf))
-         (time (string-to-number (replace-regexp-in-string ".* time%3A\\(.*\\) .*" "\\1" buf))))
-    (unless (= time lms--ui-last-time)
-      (if (string= id lms--ui-last-id)
-          (progn
-            (set-buffer (get-buffer-create "*LMS: Playing Now*"))
-            (goto-char (point-min))
-            (forward-line 6)
-            (let ((inhibit-read-only t))
-              (while (not (looking-at-p "/"))
-                (delete-char 1))
-              (insert (propertize (lms--format-time time) 'face '(:foreground "Maroon")))))
-        (lms-ui-playing-now)))))
+;;;###autoload
+(defun lms-float ()
+  "Show a frame with Playing Now."
+  (interactive)
+  (make-frame '((title . "LMS")
+                ;; (undecorated . t)
+                (menu-bar-lines . 0)
+                (tool-bar-lines . 0)
+                (minibuffer . nil)
+                (unsplittable . t)
+                (left-fringe . 5)
+                (right-fringe . 0)
+                (height .  (text-pixels . 725))
+                (width .  (text-pixels . 540))
+                (background-color . "#242430")))
+  (lms)
+  (setq mode-line-format nil)
+  (local-set-key "q" #'(lambda() (interactive)
+                         (local-set-key "q" #'lms-ui-playing-now-quit)
+                         (lms-ui-playing-now-quit)
+                         (delete-frame))))
 
-
+
 ;;;;; Playing now
 (defvar lms-ui-playing-now-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map nil)
     (define-key map (kbd "C-w")       'lms-ui-playing-now-change-player-power-state)
-    (define-key map (kbd "C-p")       'lms-ui-playing-now-select-player)
+    (define-key map (kbd "C-p")       'lms-ui-playing-now-players-list)
     (define-key map (kbd "C-r")       'lms-ui-playing-now-change-rating)
+    (define-key map (kbd "C-v")       'lms-ui-playing-now-set-volume)
     (define-key map (kbd "<SPC>")     'lms-ui-playing-now-play-pause)
+    (define-key map (kbd "RET")       'lms-ui-playing-now-play-pause)
     (define-key map (kbd "P")         'lms-ui-playing-now-play)
     (define-key map (kbd "S")         'lms-ui-playing-now-stop)
     (define-key map (kbd "n")         'lms-ui-playing-now-next)
@@ -1072,7 +817,7 @@ The actions triggered by pressing keys refer to the track under cursor.
     (define-key map (kbd "g")         'lms-ui-playing-now-refresh)
     (define-key map (kbd "i")         'lms-ui-playing-now-show-track-info)
     (define-key map (kbd "l")         'lms-ui-playing-now-show-playlist)
-    (define-key map (kbd "T")         'lms-ui-playing-now-album-tracks-list)
+    (define-key map (kbd "L")         'lms-ui-playing-now-album-tracks-list)
     (define-key map (kbd "A")         'lms-ui-playing-now-artist-albums-list)
     (define-key map (kbd "Y")         'lms-ui-playing-now-year-albums-list)
     (define-key map (kbd "M")         'lms-ui-playing-now-browse-music-library)
@@ -1086,82 +831,100 @@ The actions triggered by pressing keys refer to the track under cursor.
   "Major mode for LMS Playing now buffer.
 Press 'h' or '?' keys for complete documentation")
 
+
+(defun lms--ui-playing-now-update ()
+  "Update Playing Now screen, only when buffer is visible."
+  (when (and (get-buffer-window "*LMS: Playing Now*") (not lms--ui-editing-p))
+    (let* ((res (lms--cmd "status - 1"))
+           (mode (alist-get 'mode res))
+           (id (alist-get 'id (cadr (assq 'playlist_loop res))))
+           (time (alist-get 'time res)))
+      (when (string= mode "play")
+        (set-buffer (get-buffer-create "*LMS: Playing Now*"))  ; we need to change buffer here to reach local vars
+        (if (and lms--ui-current-trackid (= id lms--ui-current-trackid))
+            (progn
+              (goto-char (point-min))
+              (forward-line 6)
+              (let ((inhibit-read-only t))
+                (while (not (looking-at-p "/"))
+                  (delete-char 1))
+                (insert (propertize (lms--format-time time) 'face '(:foreground "Maroon")))))
+          (lms-ui-playing-now))))))
+
+
 (defun lms-ui-playing-now ()
   "Playing now."
   (interactive)
-  (unless (string= (lms--running-status) "open")
-    (lms-connect))
-  (sleep-for 0.5)
-  (unless (string= (lms--running-status) "open")
-    (error "ERROR: Can't connect to LMS server. Please verify you have customized hostname, port and credentials."))
-  (unless lms--default-playerid
-    (setq lms--default-playerid (lms-get-playerid-from-name
-                                 (ido-completing-read "Select player: " (lms-get-players-name)))))
+  (setq lms--ui-editing-p t)
+  ; check for player
   (unless lms--default-playerid
     (error "LMS: can't run without player"))
-  (let* ((totals (lms-get-library-totals))
-         (st (lms--get-status))
-         (id (plist-get st 'id))
-         (title (decode-coding-string (or (plist-get st 'title) "No title") 'utf-8))
-         (artist (decode-coding-string (or (plist-get st 'artist) "No artist") 'utf-8))
-         (album (decode-coding-string (or (plist-get st 'album) "No album") 'utf-8))
-         (year (or (plist-get st 'year) "0000"))
-         (tracknum (or (plist-get st 'tracknum) "0"))
-         (duration (string-to-number (or (plist-get st 'duration) "0")))
-         (time (string-to-number (or (plist-get st 'time) "0")))
-         (rating (string-to-number (or (plist-get st 'rating) "0")))
-         (playlist_idx (1+ (string-to-number (or (plist-get st 'playlist_cur_index) "0"))))
-         (playlist_tot (string-to-number (or (plist-get st 'playlist_tracks) "0")))
-         (playername (decode-coding-string (or (plist-get st 'player_name) "No player") 'utf-8))
-         (powerp (string= (plist-get st 'power) "1"))
-         (volume (string-to-number (or (plist-get st 'mixer\ volume) "0")))
-         (mode (or (plist-get st 'mode) "stop"))
-         (repeat (or (plist-get st 'playlist\ repeat) "0"))
-         (shuffle (or (plist-get st 'playlist\ shuffle) "0")))
-    (setq lms--ui-last-id id)
-    (setq lms--ui-last-time time)
-    ;; (switch-to-buffer "*LMS: Playing Now*")
+  ; fetch information
+  (let* ((res (lms--cmd "status - 1 tags:adlRytK" lms--default-playerid))
+         (playername (alist-get 'player_name res))
+         (powerp (alist-get 'power res))
+         (mode (alist-get 'mode res))
+         (volume (alist-get (intern "mixer volume") res))
+         (repeat (alist-get (intern "playlist repeat") res))
+         (shuffle (alist-get (intern "playlist shuffle") res))
+         (time (let ((ti (alist-get 'time res)))
+                 (if (stringp ti) (string-to-number ti) ti)))
+         (pl_cur_index (1+ (let ((idx (or (alist-get 'playlist_cur_index res) 0)))
+                             (if (stringp idx)  ; bug in lms?
+                                 (string-to-number idx)
+                               idx))))
+         (pl_total (alist-get 'playlist_tracks res))
+         (pl (alist-get 'playlist_loop res))
+         id)
     (set-buffer (get-buffer-create "*LMS: Playing Now*"))
     (lms-ui-playing-now-mode)
     (setq-local buffer-read-only nil)
     (erase-buffer)
-    ; track info
-    (insert (propertize title 'face '(variable-pitch (:height 1.5 :weight bold :slant italic :foreground "SlateGray")))
-            (propertize "\n\n" 'face '(:height 0.1))
-            (propertize artist 'face '(variable-pitch (:height 1.2 :weight bold :foreground "RosyBrown")))
-            (propertize "\n\n" 'face '(:height 0.1))
-            (propertize album 'face '(variable-pitch  (:height 1.2 :foreground "CadetBlue")))
-            (propertize (when year (format "  [%s]" year)) 'face '(variable-pitch (:height 1.2 :foreground "SteelBlue")))
-            (propertize (when tracknum (format "  (%s)" tracknum)) 'face '(variable-pitch (:height 1.2 :foreground "gray40")))
-            (propertize "\n\n" 'face '(:height 0.1))
-            (format "%s  -  %s  -  %s"
-                    (propertize (format "%s/%s" (lms--format-time time) (lms--format-time duration)) 'face '(:foreground "Maroon"))
-                    (propertize (format "%d/%d" playlist_idx playlist_tot) 'face '(:foreground "Gray40"))
-                    (propertize (lms--format-rating rating) 'face '(:foreground "Orange")))
-            (propertize "\n\n" 'face '(:height 0.5)))
+    (let-alist (car pl)
+      (setq id .id)
+      (unless pl
+        (setq .title "No title"
+              .artist "No artist"
+              .album "No album"
+              .year "0000"
+              .tracknum "0"
+              .duration 0
+              .rating 0))
+      ; track info
+      (insert (propertize (or .title "No title") 'face '(variable-pitch (:height 1.5 :weight bold :slant italic :foreground "SlateGray")))
+              (propertize "\n\n" 'face '(:height 0.1))
+              (propertize (or .artist "No artist") 'face '(variable-pitch (:height 1.2 :weight bold :foreground "RosyBrown")))
+              (propertize "\n\n" 'face '(:height 0.1))
+              (propertize (or .album "No album") 'face '(variable-pitch  (:height 1.2 :foreground "CadetBlue")))
+              (propertize (when .year (format "  [%s]" .year)) 'face '(variable-pitch (:height 1.2 :foreground "SteelBlue")))
+              (propertize (when .tracknum (format "  (%s)" .tracknum)) 'face '(variable-pitch (:height 1.2 :foreground "gray40")))
+              (propertize "\n\n" 'face '(:height 0.1))
+              (format "%s  -  %s  -  %s"
+                      (propertize (format "%s/%s" (lms--format-time (or time 0)) (lms--format-time (or .duration 0))) 'face '(:foreground "Maroon"))
+                      (propertize (format "%d/%d" (or pl_cur_index 0) (or pl_total 0)) 'face '(:foreground "Gray40"))
+                      (propertize (lms--format-rating (or .rating 0)) 'face '(:foreground "Orange")))
+              (propertize "\n\n" 'face '(:height 0.5))))
     ; cover image
     (when window-system
-      (let* ((imgdata (string-as-unibyte (lms--retrieve-url (format "http://%s:%s/music/%s/cover.jpg" lms-hostname lms-html-port id))))
-             (img (if (image-type-available-p 'imagemagick)
-                      (create-image imgdata 'imagemagick t :width lms-ui-cover-width)
-                    (create-image imgdata 'jpeg t)))
+      (let* ((imgdata (string-as-unibyte (lms--retrieve-url (format "%s/music/%s/cover.jpg" lms-url id))))
+             (img (create-image imgdata (if id 'jpeg 'png) t :width lms-ui-cover-width))
 	         (image-width (and img (car (image-size img))))
 	         (window-width (window-width)))
         (when img
           (when (> window-width image-width)
 	        ;; Center the image in the window.
 	        ;; (insert (propertize " " 'display
-			;;                     `(space :align-to (+ center (-0.5 . ,img)))))
+		    ;;                     `(space :align-to (+ center (-0.5 . ,img)))))
 	   	    (insert-image img)
             (insert (propertize "\n\n" 'face '(:height 0.5)))))))
-    ;  player
+    ; player
     (insert (propertize (format " %s " playername)
                         'face '(:box '(:style pressed-button) :foreground "RosyBrown4"))
             "  "
             (propertize (format " %s " (lms--format-mode powerp mode))
                         'face '(:box '(:style pressed-button) :foreground "RosyBrown4"))
             "  "
-            (propertize (if (> volume 0) (format " 🔈 %s " volume) " 🔇 ")
+            (propertize (lms--format-volume volume)
                         'face '(:box '(:style released-button) :foreground "RosyBrown4"))
             "  "
             (propertize (format " %s " (lms--format-repeat-mode repeat))
@@ -1171,24 +934,32 @@ Press 'h' or '?' keys for complete documentation")
                         'face '(:height 0.8 :box '(:style released-button) :foreground "RosyBrown4"))
             (propertize "\n\n" 'face '(:height 0.5)))
     ; library numbers and help
-    (insert (propertize
-             (let ((buf))
-               (dolist (n '("songs" "artists" "albums") buf)
-                 (setq buf (concat buf (plist-get totals (intern n)) " " n "  "))))
-             'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
-    (insert (propertize (format "-  %s\n" (lms--format-time (string-to-number (plist-get totals 'duration))))
-                        'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
-    (insert (propertize "Press 'h' for help, 'q' to close." 'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
+    (let* ((res2 (lms--cmd "serverstatus"))
+           (lastscan (string-to-number (alist-get 'lastscan res2)))
+           (version (alist-get 'version res2))
+           (numplayers (alist-get (intern "player count") res2))
+           (totalsongs (alist-get (intern "info total songs") res2))
+           (totalartists (alist-get (intern "info total artists") res2))
+           (totalalbums (alist-get (intern "info total albums") res2))
+           (totalgenres (alist-get (intern "info total genres") res2))
+           (totalduration (alist-get (intern "info total duration") res2)))
+      (insert (propertize (format "%d songs  %d artists  %d albums  %d genres  -  %s\n" totalsongs totalartists totalalbums totalgenres (lms--format-time totalduration))
+                          'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
+      (insert (propertize (format "Version: %s  -  %d players  -  Last scan: %s\n" version numplayers  (format-time-string "%c" lastscan))
+                          'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
+      (insert (propertize "Press 'h' for help, 'q' to close." 'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40")))))
+    ; end
     (hl-line-mode -1)
     (setq-local cursor-type nil)
     (setq-local buffer-read-only t)
-    (setq-local lms--current-trackid id)
-    (goto-char (point-max))))
+    (setq-local lms--ui-current-trackid id)
+    (goto-char (point-min)))
+  (setq lms--ui-editing-p nil))
+
 
 (defun lms-ui-playing-now-quit ()
   "Quit LMS interface ans close connection."
   (interactive)
-  (setq lms-default-player (lms-get-playername-from-id lms--default-playerid))
   (kill-buffer "*LMS: Playing Now*")
   (lms-quit))
 
@@ -1206,60 +977,16 @@ Press 'h' or '?' keys for complete documentation")
   (org-show-entry)
   (view-mode 1))
 
-(defun lms-ui-playing-now-show-track-info ()
-  "Open track information buffer."
-  (interactive)
-  (when lms--current-trackid
-    (lms-ui-track-info lms--current-trackid)))
-
-(defun lms-ui-playing-now-show-playlist ()
-  "Open playlits buffer."
-  (interactive)
-  (lms-ui-playlist))
-
 (defun lms-ui-playing-now-refresh ()
   "Reload LMS interface."
   (interactive)
   (lms-ui-playing-now))
 
-(defun lms-ui-playing-now-change-player-power-state ()
-  "Change power state of current player."
-  (interactive)
-  (let* ((lst '("toggle" "on" "off"))
-         (state (ido-completing-read "Change player power state: " lst)))
-    (when (and state (seq-contains lst state))
-      (if (string= state "toggle")
-          (lms-player-toggle-power)
-        (if (string= state "on")
-            (lms-player-power-on)
-          (lms-player-power-off)))
-      (sleep-for .2)
-      (lms-ui-playing-now-refresh))))
-
-(defun lms-ui-playing-now-select-player ()
-  "Select player."
-  (interactive)
-  (let ((playerid (lms-get-playerid-from-name (ido-completing-read "Select player: " (lms-get-players-name)))))
-    (when playerid
-      (setq lms--default-playerid playerid)
-      (sleep-for .2)
-      (lms-ui-playing-now-refresh))))
-
-(defun lms-ui-playing-now-change-rating ()
-  "Change rating of current track."
-  (interactive)
-  (when lms--current-trackid
-    (let* ((lst '("0" "10" "20" "30" "40" "50" "60" "70" "80" "90" "100"))
-           (rating (ido-completing-read "Rating: " lst)))
-      (when (and rating (seq-contains lst rating))
-        (lms-set-track-rating lms--current-trackid rating)
-        (sleep-for .2)
-        (lms-ui-playing-now-refresh)))))
 
 (defun lms-ui-playing-now-play-pause ()
   "Toggle play/pause."
   (interactive)
-  (when lms--current-trackid
+  (when lms--ui-current-trackid
     (lms-playing-toggle-pause)
     (sleep-for .2)
     (lms-ui-playing-now-refresh)))
@@ -1267,7 +994,7 @@ Press 'h' or '?' keys for complete documentation")
 (defun lms-ui-playing-now-play ()
   "Play."
   (interactive)
-  (when lms--current-trackid
+  (when lms--ui-current-trackid
     (lms-playing-play)
     (sleep-for .2)
     (lms-ui-playing-now-refresh)))
@@ -1275,47 +1002,90 @@ Press 'h' or '?' keys for complete documentation")
 (defun lms-ui-playing-now-stop ()
   "Stop."
   (interactive)
-  (when lms--current-trackid
+  (when lms--ui-current-trackid
     (lms-playing-stop)
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
+
+
+(defun lms-ui-playing-now-prev ()
+  "Jump to previous song."
+  (interactive)
+  (when lms--ui-current-trackid
+    (lms-playlist-play-track "-1")
     (sleep-for .2)
     (lms-ui-playing-now-refresh)))
 
 (defun lms-ui-playing-now-next ()
   "Jump to next song."
   (interactive)
-  (when lms--current-trackid
-    (lms-playlist-next)
+  (when lms--ui-current-trackid
+    (lms-playlist-play-track "+1")
     (sleep-for .2)
     (lms-ui-playing-now-refresh)))
 
-(defun lms-ui-playing-now-prev ()
-  "Jump to previous song."
+
+(defun lms-ui-playing-now-volume-mute ()
+  "Toggle volume un/mute."
   (interactive)
-  (when lms--current-trackid
-    (lms-playlist-prev)
-    (sleep-for .2)
-    (lms-ui-playing-now-refresh)))
+  (lms-player-toggle-mute)
+  (sleep-for .5)
+  (lms-ui-playing-now-refresh))
+
+(defun lms-ui-playing-now-set-volume ()
+  "Set volume."
+  (interactive)
+  (call-interactively 'lms-player-set-volume)
+  (sleep-for .5)
+  (lms-ui-playing-now-refresh))
 
 (defun lms-ui-playing-now-volume-up ()
   "Volume up."
   (interactive)
-  (lms-player-volume-up)
-  (sleep-for .2)
+  (lms-player-set-volume "+5")
+  (sleep-for .5)
   (lms-ui-playing-now-refresh))
 
 (defun lms-ui-playing-now-volume-down ()
-  "Volume up."
+  "Volume down."
   (interactive)
-  (lms-player-volume-down)
-  (sleep-for .2)
+  (lms-player-set-volume "-5")
+  (sleep-for .5)
   (lms-ui-playing-now-refresh))
+
+
+(defun lms-ui-playing-now-change-player-power-state ()
+  "Change power state of player."
+  (interactive)
+  (let ((state (car (read-multiple-choice "Change player power state"
+                                          '((?t "toggle")
+                                            (?o "on")
+                                            (?f "off"))))))
+    (pcase state
+      (?t (lms-player-toggle-power))
+      (?o (lms-player-power-on))
+      (?f (lms-player-power-off)))
+    (sleep-for .2)
+    (lms-ui-playing-now-refresh)))
+
+(defun lms-ui-playing-now-change-rating ()
+  "Change rating of current track."
+  (interactive)
+  (when lms--ui-current-trackid
+    (let ((rating (cadr (read-multiple-choice "Rating"
+                                              '((?z "0") (?1 "10") (?2 "20") (?3 "30") (?4 "40") (?5 "50") (?6 "60") (?7 "70") (?8 "80") (?9 "90") (?0 "100"))))))
+      (when rating
+        (lms-track-set-rating lms--ui-current-trackid rating)
+        (sleep-for .2)
+        (lms-ui-playing-now-refresh)))))
+
 
 (defun lms-ui-playing-now-cycle-repeat ()
   "Cycle repeat modes."
   (interactive)
   (let ((repeat (string-to-number (lms-playlist-get-repeat))))
-    (setq repeat (if (eq repeat 2) 0 (1+ repeat)))
-    (lms-playlist-set-repeat (number-to-string repeat)))
+    (setq repeat (if (= repeat 2) 0 (1+ repeat)))
+    (lms-playlist-set-repeat repeat))
   (sleep-for .2)
   (lms-ui-playing-now-refresh))
 
@@ -1323,23 +1093,41 @@ Press 'h' or '?' keys for complete documentation")
   "Cycle shuffle modes."
   (interactive)
   (let ((shuffle (string-to-number (lms-playlist-get-shuffle))))
-    (setq shuffle (if (eq shuffle 2) 0 (1+ shuffle)))
-    (lms-playlist-set-shuffle (number-to-string shuffle)))
+    (setq shuffle (if (= shuffle 2) 0 (1+ shuffle)))
+    (lms-playlist-set-shuffle shuffle))
   (sleep-for .2)
   (lms-ui-playing-now-refresh))
 
-(defun lms-ui-playing-now-volume-mute ()
-  "Volume up."
+
+(defun lms-ui-playing-now-players-list ()
+  "Open players list."
   (interactive)
-  (lms-player-toggle-mute)
-  (sleep-for .5)
-  (lms-ui-playing-now-refresh))
+  (lms-ui-players))
+
+(defun lms-ui-playing-now-show-track-info ()
+  "Open track information buffer."
+  (interactive)
+  (when lms--ui-current-trackid
+    (lms-ui-track-info lms--ui-current-trackid)))
+
+(defun lms-ui-playing-now-show-playlist ()
+  "Open playlits buffer."
+  (interactive)
+  (lms-ui-playlist))
+
+(defun lms-ui-playing-now-album-tracks-list ()
+  "Show list of tracks in album of current track."
+  (interactive)
+  (let* ((albumid (lms-get-current-track-albumid))
+         (buftitle (format "*LMS: Tracks in album '%s'*" (lms-get-album-name-from-id albumid)))
+         (lst (lms-get-tracks-from-albumid albumid)))
+    (lms-ui-tracks-list buftitle lst)))
 
 (defun lms-ui-playing-now-artist-albums-list ()
   "Show list of albums by the artist of current track."
   (interactive)
   (let* ((artistid (lms-get-current-track-artistid))
-         (buftitle (format "*LMS: Albums by %s*" (lms--unhex-encode (lms-get-artist-name-from-id artistid))))
+         (buftitle (format "*LMS: Albums by %s*" (lms-get-artist-name-from-id artistid)))
          (lst (lms-get-albums-from-artistid artistid)))
     (lms-ui-year-album-artist-list buftitle lst)))
 
@@ -1347,66 +1135,42 @@ Press 'h' or '?' keys for complete documentation")
   "Show list of albums by year of current track."
   (interactive)
   (let* ((year (lms-get-current-track-year))
-         (buftitle (format "*LMS: Albums in year %s*" year))
+         (buftitle (format "*LMS: Albums in year %d*" year))
          (lst (lms-get-albums-from-year year)))
     (lms-ui-year-album-artist-list buftitle lst)))
-
-(defun lms-ui-playing-now-album-tracks-list ()
-  "Show list of tracks in album of current track."
-  (interactive)
-  (let* ((albumid (lms-get-current-track-albumid))
-         (buftitle (format "*LMS: Tracks in album '%s'*" (lms--unhex-encode (lms-get-album-name-from-id albumid))))
-         (lst (lms-get-tracks-from-albumid albumid)))
-    (lms-ui-tracks-list buftitle lst)))
 
 (defun lms-ui-playing-now-browse-music-library ()
   "Browse music library."
   (interactive)
-  (let* ((lst '("Artist" "Album" "Genre" "Year" "Recent albums"))
-         (action (ido-completing-read "Browse music library by? " lst)))
-    (when (and action (seq-contains lst action))
-      (pcase action
-        ("Artist"
-         (let* ((artists (mapcar #'(lambda (a) (lms--unhex-utf8-string (plist-get a 'artist)))
-                                 (lms-get-artists)))
-                (artist (if lms-use-helm-in-library-browsing
-                            (lms--helm-select-from-list "LMS artists" artists t)
-                          (ido-completing-read "Artist? " artists))))
-           (when (and artist (seq-contains artists artist))
-             (lms-ui-year-album-artist-list (format "*LMS: Albums by %s*" artist)
-                                            (lms-get-albums-from-artistid (lms-get-artist-id-from-name artist))))))
-        ("Album"
-         (let* ((albums (seq-sort #'string< (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'album)))
-                                                    (lms-get-albums))))
-                (album (if lms-use-helm-in-library-browsing
-                           (lms--helm-select-from-list "LMS albums" albums t)
-                         (ido-completing-read "Album? " albums))))
-           (when (and album (seq-contains albums album))
-             (lms-ui-tracks-list (format "*LMS: Album '%s'*" album)
-                                 (lms-get-tracks-from-albumid (lms-get-album-id-from-name album))))))
-        ("Genre"
-         (let* ((genres (mapcar #'(lambda (g) (lms--unhex-utf8-string (plist-get g 'genre)))
-                                (lms-get-genres)))
-                (genre (if lms-use-helm-in-library-browsing
-                           (lms--helm-select-from-list "LMS genres" genres t)
-                         (ido-completing-read "Genre? " genres))))
-           (when (and genre (seq-contains genres genre))
-             (lms-ui-year-album-artist-list (format "*LMS: Albums in genre %s*" genre)
-                                            (lms-get-albums-from-genre-id (lms-get-genre-id-from-name genre))))))
-        ("Year"
-         (let* ((years (lms-get-years))
-                (year (if lms-use-helm-in-library-browsing
-                          (lms--helm-select-from-list "LMS years" years nil)
-                        (ido-completing-read "Year? " years))))
-           (when (and year (seq-contains years year))
-             (lms-ui-year-album-artist-list (format "*LMS: Albums in year %s*" year)
-                                            (lms-get-albums-from-year year)))))
-        ("Recent albums"
-         (lms-ui-year-album-artist-list "*LMS: recent albums*" (lms-get-recent-albums lms-number-recent-albums)))
-        ))))
+  (let ((action (car (read-multiple-choice "Browse music library by"
+                                           '((?a "artist")
+                                             (?l "album")
+                                             (?g "genre")
+                                             (?y "year")
+                                             (?r "recent albums"))))))
+    (pcase action
+      (?a
+       (let ((artist (completing-read "Artist? " (lms-get-artists))))
+         (lms-ui-year-album-artist-list (format "*LMS: Albums by %s*" artist)
+                                         (lms-get-albums-from-artistid (lms-get-artist-id-from-name artist)))))
+      (?l
+       (let ((album (completing-read "Album? " (lms-get-albums))))
+         (lms-ui-tracks-list (format "*LMS: Album '%s'*" album)
+                              (lms-get-tracks-from-albumid (lms-get-album-id-from-name album)))))
+      (?g
+       (let ((genre (completing-read "Genre? " (lms-get-genres))))
+         (lms-ui-year-album-artist-list (format "*LMS: Albums in genre %s*" genre)
+                                         (lms-get-albums-from-genreid (lms-get-genreid-from-name genre)))))
+      (?y
+       (let ((year (completing-read "Year? " (mapcar #'int-to-string (lms-get-years)))))
+         (lms-ui-year-album-artist-list (format "*LMS: Albums in year %s*" year)
+                                         (lms-get-albums-from-year (string-to-number year)))))
+      (?r
+       (lms-ui-year-album-artist-list "*LMS: recent albums*"
+                                       (lms-get-recent-albums lms-number-recent-albums))))))
 
-
-;;;;; Song info
+
+;;;;; Track info
 (defvar lms-ui-track-info-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-r")     'lms-ui-track-info-change-rating)
@@ -1417,7 +1181,8 @@ Press 'h' or '?' keys for complete documentation")
     (define-key map (kbd "h")       'lms-ui-playing-now-help)
     (define-key map (kbd "?")       'lms-ui-playing-now-help)
     (define-key map (kbd "q")       '(lambda () (interactive)
-                                       (kill-buffer "*LMS: Track Information*")))
+                                       (kill-buffer "*LMS: Track Information*")
+                                       (lms-ui-playing-now-refresh)))
     map)
   "Local keymap for `lms-ui-track-info-mode' buffers.")
 
@@ -1428,43 +1193,41 @@ Press 'h' or '?' keys for complete documentation")
   "Track information for TRACKID.
 Optional TRACKS-IDS variable is used to identify prev/next song."
   (interactive)
-  (let ((trackinfo (lms-get-track-info trackid))
-        k v)
-    (setq trackinfo (plist-put trackinfo 'title (decode-coding-string (plist-get trackinfo 'title) 'utf-8)))
-    (setq trackinfo (plist-put trackinfo 'artist (decode-coding-string (plist-get trackinfo 'artist) 'utf-8)))
-    (setq trackinfo (plist-put trackinfo 'album (decode-coding-string (plist-get trackinfo 'album) 'utf-8)))
-    (setq trackinfo (plist-put trackinfo 'genre (decode-coding-string (plist-get trackinfo 'genre) 'utf-8)))
-    (setq trackinfo (plist-put trackinfo 'url (decode-coding-string (url-unhex-string (plist-get trackinfo 'url)) 'utf-8)))
-    (setq trackinfo (plist-put trackinfo 'duration (lms--format-time (string-to-number (plist-get trackinfo 'duration)))))
-    (setq trackinfo (plist-put trackinfo 'rating (lms--format-rating (string-to-number (plist-get trackinfo 'rating)))))
-    (setq trackinfo (plist-put trackinfo 'filesize (lms--format-filesize (string-to-number (plist-get trackinfo 'filesize)))))
+  (let* ((trackinfo (alist-get 'songinfo_loop (lms--cmd (format "songinfo 0 100 track_id:%d tags:alytgiqdROfuovrTImnDU"  trackid))))
+         id)
     (switch-to-buffer "*LMS: Track Information*")
     (lms-ui-track-info-mode)
     (setq-local buffer-read-only nil)
-    (setq-local lms--ui-track-info-trackid (plist-get trackinfo 'id))
-    (setq-local lms--ui-track-info-tracksids tracks-ids)
     (erase-buffer)
     (insert (propertize "Track information" 'face '(variable-pitch (:height 1.5 :weight bold :underline t :foreground "SlateGray"))))
     (insert "\n\n")
-    (while trackinfo
-      (setq k (pop trackinfo))
-      (setq v (pop trackinfo))
-      (insert (propertize (format "%s: " (capitalize (symbol-name k))) 'face '(:weight bold)))
-      (insert (format "%s\n" v)))
+    (dolist (elm trackinfo)
+      (let ((k (caar elm))
+            (v (cdar elm)))
+        (pcase k
+          ('id (setq id v))
+          ('duration (setq v (lms--format-time v)))
+          ('rating (setq v (lms--format-rating v)))
+          ('filesize (setq v (lms--format-filesize v)))
+          ('url (setq v (url-unhex-string v))))
+        (insert (propertize (format "%s: " (capitalize (symbol-name k))) 'face '(:weight bold)))
+        (insert (format "%s\n" v))))
     (insert "\n")
     (insert (propertize "Press 'q' to close this window." 'face '(variable-pitch (:height 0.85 :slant italic :foreground "gray40"))))
     (hl-line-mode -1)
     (setq-local buffer-read-only t)
     (setq-local cursor-type nil)
-    (goto-char (point-max))))
+    (setq-local lms--ui-track-info-trackid id)
+    (setq-local lms--ui-track-info-tracksids tracks-ids)
+    (goto-char (point-min))))
 
 (defun lms-ui-track-info-change-rating ()
   "Change track rating."
   (interactive)
-  (let* ((lst '("0" "10" "20" "30" "40" "50" "60" "70" "80" "90" "100"))
-         (rating (ido-completing-read "Rating: " lst)))
-    (when (and rating (seq-contains lst rating))
-      (lms-set-track-rating lms--ui-track-info-trackid rating)
+  (let ((rating (cadr (read-multiple-choice "Rating"
+                                            '((?z "0") (?1 "10") (?2 "20") (?3 "30") (?4 "40") (?5 "50") (?6 "60") (?7 "70") (?8 "80") (?9 "90") (?0 "100"))))))
+    (when rating
+      (lms-track-set-rating lms--ui-track-info-trackid rating)
       (goto-char (point-min))
       (when (search-forward "Rating: " nil nil)
         (let ((inhibit-read-only t))
@@ -1487,8 +1250,101 @@ Optional TRACKS-IDS variable is used to identify prev/next song."
       (when (and idx (< (1+ idx) (length lms--ui-track-info-tracksids)))
         (lms-ui-track-info (nth (1+ idx) lms--ui-track-info-tracksids) lms--ui-track-info-tracksids)))))
 
+
+;;;;; Players list
+(defvar lms-ui-players-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map [remap end-of-buffer]     '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap end-of-defun]      '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap forward-paragraph] '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap next-line]         '(lambda () (interactive) (forward-line 1) (when (eobp) (forward-line -1))))
+    (define-key map (kbd "RET")               'lms-ui-players-select)
+    (define-key map (kbd "<SPC>")             'lms-ui-players-playpause)
+    (define-key map (kbd "C-w")               'lms-ui-players-toggle-power)
+    (define-key map (kbd "h")                 'lms-ui-playing-now-help)
+    (define-key map (kbd "?")                 'lms-ui-playing-now-help)
+    (define-key map (kbd "q")                 '(lambda () (interactive)
+                                                 (kill-buffer (format "*LMS: Players*"))
+                                                 (lms-ui-playing-now-refresh)))
+    map)
+  "Local keymap for `lms-ui-players-mode' buffers.")
 
-;;;;; Playlist
+(define-derived-mode lms-ui-players-mode tabulated-list-mode "LMS Players"
+  "Major mode for LMS Players buffer.
+Press 'h' or '?' keys for complete documentation."
+  (setq tabulated-list-format [(" "         1 t :right-align nil)
+                               (" "         1 t :right-align t)
+                               ("Name"     25 t :right-align nil)
+                               ("Model"    18 t :right-align nil)
+                               ("Id"       18 t :right-align nil)
+                               ("IP"       20 t :right-align nil)
+                               ("Power?"    0 t :right-align nil)])
+  (setq tabulated-list-padding 0)
+  (tabulated-list-init-header))
+
+(defun lms-ui-players ()
+  "Players."
+  (interactive)
+  (switch-to-buffer "*LMS: Players*" nil)
+  (setq-local buffer-read-only nil)
+  (erase-buffer)
+  (lms-ui-players-mode)
+  (lms--get-players)  ; bypass players cache
+  (let* ((res (lms--cmd "serverstatus -"))
+         (players (alist-get 'players_loop res)))
+    (setq tabulated-list-entries
+          (mapcar #'(lambda (p)
+                      (let-alist p
+                        (list .playerid
+                              (vector
+                               (propertize (if (string= .playerid lms--default-playerid) "➤" " ") 'face 'lms-players-selected-face)
+                               (propertize (if (zerop .isplaying) " " "♫")'face 'lms-players-isplaying-face)
+                               (propertize .name 'face 'lms-players-name-face)
+                               (propertize .modelname 'face 'lms-players-model-face)
+                               (propertize .playerid 'face 'lms-players-playerid-face)
+                               (propertize .ip 'face 'lms-players-ip-face)
+                               (propertize (if (zerop .power) "  ✘" "  ✔") 'face 'lms-players-power-face)))))
+                  players)))
+  (tabulated-list-print t)
+  (goto-char (point-min))
+  (hl-line-mode 1)
+  (setq-local cursor-type nil)
+  (search-forward "♫" nil t)
+  (move-beginning-of-line nil))
+
+(defun lms-ui-players-select ()
+  "Select active player and close view."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (setq lms--default-playerid (tabulated-list-get-id))
+    (kill-buffer (format "*LMS: Players*"))
+    (lms-ui-playing-now-refresh)))
+
+(defun lms-ui-players-playpause ()
+  "Toggle play/pause."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (let ((ln (1- (line-number-at-pos))))
+      (lms--cmd '("pause") (tabulated-list-get-id))
+      (sleep-for .2)
+      (lms-ui-players)
+      (goto-char (point-min))
+      (forward-line ln))))
+
+(defun lms-ui-players-toggle-power ()
+  "Toggle power state."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (let ((ln (1- (line-number-at-pos))))
+      (lms--cmd "power" (tabulated-list-get-id))
+      (sleep-for .2)
+      (lms-ui-players)
+      (goto-char (point-min))
+      (forward-line ln))))
+
+
+;;;;; Playing list
 (defvar lms-ui-playlist-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
@@ -1506,11 +1362,13 @@ Optional TRACKS-IDS variable is used to identify prev/next song."
     (define-key map (kbd "c f")               'lms-ui-playlist-clear-from-track)
     (define-key map (kbd "g")                 'lms-ui-playlist)
     (define-key map (kbd "A")                 'lms-ui-playlist-artist-albums-list)
+    (define-key map (kbd "L")                 'lms-ui-playlist-album-tracks-list)
     (define-key map (kbd "Y")                 'lms-ui-playlist-year-albums-list)
-    (define-key map (kbd "T")                 'lms-ui-playlist-album-tracks-list)
     (define-key map (kbd "h")                 'lms-ui-playing-now-help)
     (define-key map (kbd "?")                 'lms-ui-playing-now-help)
-    (define-key map (kbd "q")                 '(lambda () (interactive) (kill-buffer (format "*LMS: Playlist [%d tracks]*" (length lms--ui-pl-tracks)))))
+    (define-key map (kbd "q")                 '(lambda () (interactive)
+                                                 (kill-buffer (format "*LMS: Playlist [%d tracks]*" (length lms--ui-pl-tracks)))
+                                                 (lms-ui-playing-now-refresh)))
     map)
   "Local keymap for `lms-ui-playlist-mode' buffers.")
 
@@ -1537,20 +1395,23 @@ Press 'h' or '?' keys for complete documentation."
   (setq-local buffer-read-only nil)
   (erase-buffer)
   (lms-ui-playlist-mode)
-  (let ((tracks (lms-get-playlist)))
+  (let* ((res (lms--cmd "status 0 1000 tags:alydt"))
+         (idx (let ((idx (alist-get 'playlist_cur_index res)))
+                (if (stringp idx) (string-to-number idx) (or idx 0))))
+         (tracks (alist-get 'playlist_loop res)))
     (setq tabulated-list-entries
-          (mapcar #'(lambda (x)
-                      (list (plist-get x 'index)
+          (mapcar #'(lambda (tr)
+                      (list (alist-get (intern "playlist index") tr)
                             (vector
-                             (propertize (if (plist-get x 'current) "♫" " ") 'face 'lms-playing-face)
-                             (propertize (lms--unhex-encode (plist-get x 'title)) 'face 'lms-title-face)
-                             (propertize (lms--unhex-encode (plist-get x 'artist)) 'face 'lms-artist-face)
-                             (propertize (or (plist-get x 'year) "") 'face 'lms-year-face)
-                             (propertize (lms--unhex-encode (plist-get x 'album)) 'face 'lms-album-face)
-                             (propertize (lms--unhex-encode (plist-get x 'tracknum)) 'face 'lms-tracknum-face)
-                             (propertize (lms--format-time (plist-get x 'duration)) 'face 'lms-duration-face))))
+                             (propertize (if (= (alist-get (intern "playlist index") tr) idx) "♫" " ") 'face 'lms-playing-face)
+                             (propertize (or (alist-get 'title tr) "No title") 'face 'lms-title-face)
+                             (propertize (or (alist-get 'artist tr) "No artist") 'face 'lms-artist-face)
+                             (propertize (number-to-string (or (alist-get 'year tr) 0)) 'face 'lms-year-face)
+                             (propertize (or (alist-get 'album tr) "No album") 'face 'lms-album-face)
+                             (propertize (number-to-string (or (alist-get 'tracknum tr) 0)) 'face 'lms-tracknum-face)
+                             (propertize (lms--format-time (or (alist-get 'duration tr) 0)) 'face 'lms-duration-face))))
                   tracks))
-    (setq-local lms--ui-pl-tracks tracks))
+      (setq-local lms--ui-pl-tracks tracks))
   (rename-buffer (format "*LMS: Playlist [%d tracks]*" (length lms--ui-pl-tracks)))
   (tabulated-list-print t)
   (goto-char (point-min))
@@ -1577,8 +1438,11 @@ Press 'h' or '?' keys for complete documentation."
   "Remove selected track from playlist."
   (interactive)
   (when (tabulated-list-get-id)
-    (lms-playlist-delete-track (tabulated-list-get-id))
-    (lms-ui-playlist)))
+    (let ((ln (1- (line-number-at-pos))))
+      (lms-playlist-delete-track (tabulated-list-get-id))
+      (lms-ui-playlist)
+      (goto-char (point-min))
+      (forward-line ln))))
 
 (defun lms-ui-playlist-clear-until-track ()
   "Remove tracks from playlist, from start to cursor."
@@ -1596,7 +1460,7 @@ Press 'h' or '?' keys for complete documentation."
   (when (and (tabulated-list-get-id) (y-or-n-p "Clear tracks from cursor to end? "))
     (let ((current (tabulated-list-get-id))
           (max (1- (length lms--ui-pl-tracks))))
-      (while (> max current)
+      (while (>= max current)
         (lms-playlist-delete-track max)
         (setq max (1- max)))
       (lms-ui-playlist))))
@@ -1612,15 +1476,15 @@ Press 'h' or '?' keys for complete documentation."
   "Open track information buffer for selected track."
   (interactive)
   (when (tabulated-list-get-id)
-    (let ((trackid (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'id))
-          (tracks-ids (mapcar #'(lambda (s) (plist-get s 'id)) lms--ui-pl-tracks)))
+    (let ((trackid (alist-get 'id (nth (tabulated-list-get-id) lms--ui-pl-tracks)))
+          (tracks-ids (mapcar #'(lambda (s) (alist-get 'id s)) lms--ui-pl-tracks)))
       (lms-ui-track-info trackid tracks-ids))))
 
 (defun lms-ui-playlist-artist-albums-list ()
   "Show list of albums by the artist of current track."
   (interactive)
   (when (tabulated-list-get-id)
-    (let* ((artist (lms--unhex-encode (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'artist)))
+    (let* ((artist (alist-get 'artist (nth (tabulated-list-get-id) lms--ui-pl-tracks)))
            (artistid (lms-get-artist-id-from-name artist))
            (buftitle (format "*LMS: Albums by %s*" artist))
            (lst (lms-get-albums-from-artistid artistid)))
@@ -1630,8 +1494,8 @@ Press 'h' or '?' keys for complete documentation."
   "Show list of albums by year of current track."
   (interactive)
     (when (tabulated-list-get-id)
-      (let* ((year (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'year))
-             (buftitle (format "*LMS: Albums in year %s*" year))
+      (let* ((year (alist-get 'year (nth (tabulated-list-get-id) lms--ui-pl-tracks)))
+             (buftitle (format "*LMS: Albums in year %d*" year))
              (lst (lms-get-albums-from-year year)))
         (lms-ui-year-album-artist-list buftitle lst))))
 
@@ -1639,124 +1503,15 @@ Press 'h' or '?' keys for complete documentation."
   "Show list of tracks in album of current track."
   (interactive)
     (when (tabulated-list-get-id)
-      (let* ((album (lms--unhex-encode (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'album)))
-             ;; (artist (lms--unhex-encode (plist-get (nth (tabulated-list-get-id) lms--ui-pl-tracks) 'artist)))
-             ;; (albumid (lms-get-album-id-from-name album artist))
-             (albumid (lms-get-album-id-from-name album))
+      (let* ((album (alist-get 'album (nth (tabulated-list-get-id) lms--ui-pl-tracks)))
+             (artist (alist-get 'artist (nth (tabulated-list-get-id) lms--ui-pl-tracks)))
+             (albumid (lms-get-album-id-from-name album artist))
              (buftitle (format "*LMS: Tracks in album '%s'*" album))
              (lst (lms-get-tracks-from-albumid albumid)))
         (lms-ui-tracks-list buftitle lst))))
 
-
-;;;;; Year-Album-Artist
-(defvar lms--ui-yaal-lst nil
-  "Temporal list variable in 'year-album-artist' view.")
-
-(defvar lms-ui-year-album-artist-list-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map tabulated-list-mode-map)
-    (define-key map [remap end-of-buffer]     '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
-    (define-key map [remap end-of-defun]      '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
-    (define-key map [remap forward-paragraph] '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
-    (define-key map [remap next-line]         '(lambda () (interactive) (forward-line 1) (when (eobp) (forward-line -1))))
-    (define-key map (kbd "Y")                 'lms-ui-yaal-by-year)
-    (define-key map (kbd "A")                 'lms-ui-yaal-by-artist)
-    (define-key map (kbd "T")                 'lms-ui-yaal-by-album)
-    (define-key map (kbd "RET")               'lms-ui-yaal-by-album)
-    (define-key map (kbd "p")                 'lms-ui-yaal-to-playlist)
-    ;; TODO: Add all entries to playlist?
-    ;; (define-key map (kbd "P")                 'lms-ui-yaal-all-to-playlist)
-    (define-key map (kbd "h")                 'lms-ui-playing-now-help)
-    (define-key map (kbd "?")                 'lms-ui-playing-now-help)
-    (define-key map (kbd "q")                 '(lambda () (interactive) (kill-buffer)))
-    map)
-  "Local keymap for `lms-ui-year-album-artist-list-mode' buffers.")
-
-(define-derived-mode lms-ui-year-album-artist-list-mode tabulated-list-mode "LMS Year-Artist-Album"
-  "Major mode for LMS Year-Album-Artist buffer.
-Press 'h' or '?' keys for complete documentation."
-  (setq tabulated-list-format [("Year"     6   t :right-align nil)
-                               ("Album"    40  t :right-align nil)
-                               ("Artist"   0   t :right-align nil)])
-  (setq tabulated-list-padding 1)
-  (tabulated-list-init-header))
-
-(defun lms-ui-year-album-artist-list (buftitle lst)
-  "Year-Album-Artist list with BUFTITLE and LST entries."
-  (interactive)
-  (switch-to-buffer buftitle nil)
-  (setq-local buffer-read-only nil)
-  (erase-buffer)
-  (lms-ui-year-album-artist-list-mode)
-  (setq tabulated-list-entries
-        (mapcar #'(lambda (x)
-                    (list (plist-get x 'id)
-                          (vector
-                           (propertize (or (plist-get x 'year) "") 'face 'lms-year-face)
-                           (propertize (lms--unhex-encode (plist-get x 'album)) 'face 'lms-album-face)
-                           (propertize (or (lms--unhex-encode (plist-get x 'artist)) "No artist") 'face 'lms-artist-face))))
-                  lst))
-  (setq-local lms--ui-yaal-lst lst)
-  (tabulated-list-print t)
-  (goto-char (point-min))
-  (hl-line-mode 1)
-  (setq-local cursor-type nil))
-
-(defun lms-ui-yaal-to-playlist ()
-  "Select and execute action for artist album list."
-  (interactive)
-  (when (tabulated-list-get-id)
-    (let ((cmd (lms--ask-playlistcontrol-action)))
-      (lms--playlist-control cmd (format "album_id:%s" (tabulated-list-get-id)))
-      (kill-buffer))))
-
-(defun lms-ui-yaal-by-artist ()
-  "Browse list of albums by artist of album under cursor."
-  (interactive)
-  (when (tabulated-list-get-id)
-    (let* ((artist (lms--unhex-encode (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                                           lms--ui-yaal-lst)
-                                                 'artist)))
-           (artistid (lms-get-artist-id-from-name artist))
-           (buftitle (format "*LMS: Albums by artist %s*" artist))
-           (lst (lms-get-albums-from-artistid artistid)))
-      (kill-buffer)
-      (lms-ui-year-album-artist-list buftitle lst))))
-
-(defun lms-ui-yaal-by-year ()
-  "Browse list of albums by year of album under cursor."
-  (interactive)
-  (when (tabulated-list-get-id)
-    (let* ((year (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                      lms--ui-yaal-lst)
-                            'year))
-           (buftitle (format "*LMS: Albums in year %s*" year))
-           (lst (lms-get-albums-from-year year)))
-      (kill-buffer)
-      (lms-ui-year-album-artist-list buftitle lst))))
-
-(defun lms-ui-yaal-by-album ()
-  "Browse list of tracks of album under cursor."
-  (interactive)
-  (when (tabulated-list-get-id)
-    (let* ((album (lms--unhex-encode (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                                          lms--ui-yaal-lst)
-                                                'album)))
-           (artist (lms--unhex-encode (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                                           lms--ui-yaal-lst)
-                                                 'artist)))
-           ;; (albumid (lms-get-album-id-from-name album artist))
-           (albumid (lms-get-album-id-from-name album))
-           (buftitle (format "*LMS: Tracks in album '%s'*" (lms--unhex-encode (lms-get-album-name-from-id albumid))))
-           (lst (lms-get-tracks-from-albumid albumid)))
-      (kill-buffer)
-      (lms-ui-tracks-list buftitle lst))))
-
-
-;;;;; Tracks list view
-(defvar lms--ui-tracks-lst nil
-  "Temporal list variable in 'tracks' view.")
-
+
+;;;;; Tracklist
 (defvar lms-ui-tracks-list-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tabulated-list-mode-map)
@@ -1766,20 +1521,21 @@ Press 'h' or '?' keys for complete documentation."
     (define-key map [remap next-line]         '(lambda () (interactive) (forward-line 1) (when (eobp) (forward-line -1))))
     (define-key map (kbd "i")                 'lms-ui-tl-track-info)
     (define-key map (kbd "RET")               'lms-ui-tl-track-info)
-    (define-key map (kbd "Y")                 'lms-ui-tl-by-year)
-    (define-key map (kbd "A")                 'lms-ui-tl-by-artist)
     (define-key map (kbd "p")                 'lms-ui-tl-to-playlist)
     (define-key map (kbd "P")                 'lms-ui-tl-all-to-playlist)
+    (define-key map (kbd "Y")                 'lms-ui-tl-by-year)
+    (define-key map (kbd "A")                 'lms-ui-tl-by-artist)
     (define-key map (kbd "h")                 'lms-ui-playing-now-help)
     (define-key map (kbd "?")                 'lms-ui-playing-now-help)
-    (define-key map (kbd "q")                 '(lambda () (interactive) (kill-buffer)))
+    (define-key map (kbd "q")                 '(lambda () (interactive)
+                                                 (kill-buffer)
+                                                 (lms-ui-playing-now-refresh)))
     map)
   "Local keymap for `lms-ui-tracks-list-mode' buffers.")
 
 (define-derived-mode lms-ui-tracks-list-mode tabulated-list-mode "LMS Tracks"
   "Major mode for LMS Tracks buffer.
 Press 'h' or '?' keys for complete documentation."
-  ;; TODO: tracknum?
   (setq tabulated-list-format [("Tr#"      3    t :right-align t)
                                ("Title"   32    t :right-align nil)
                                ("Artist"  24    t :right-align nil)
@@ -1798,14 +1554,14 @@ Press 'h' or '?' keys for complete documentation."
   (lms-ui-tracks-list-mode)
   (setq tabulated-list-entries
         (mapcar #'(lambda (x)
-                    (list (plist-get x 'id)
+                    (list (alist-get 'id x)
                           (vector
-                           (propertize (or (plist-get x 'tracknum) "") 'face 'lms-tracknum-face)
-                           (propertize (lms--unhex-encode (plist-get x 'title)) 'face 'lms-title-face)
-                           (propertize (lms--unhex-encode (plist-get x 'artist)) 'face 'lms-artist-face)
-                           (propertize (or (plist-get x 'year) "") 'face 'lms-year-face)
-                           (propertize (lms--unhex-encode (plist-get x 'album)) 'face 'lms-album-face)
-                           (propertize (lms--format-time (string-to-number (plist-get x 'duration))) 'face 'lms-duration-face))))
+                           (propertize (number-to-string (or (alist-get 'tracknum x) 0)) 'face 'lms-tracknum-face)
+                           (propertize (or (alist-get 'title x) "No title") 'face 'lms-title-face)
+                           (propertize (or (alist-get 'artist x) "No artist") 'face 'lms-artist-face)
+                           (propertize (number-to-string (or (alist-get 'year x) 0)) 'face 'lms-year-face)
+                           (propertize (or (alist-get 'album x) "No album") 'face 'lms-album-face)
+                           (propertize (lms--format-time (alist-get 'duration x)) 'face 'lms-duration-face))))
                 lst))
   (setq-local lms--ui-tracks-lst lst)
   (tabulated-list-print t)
@@ -1818,33 +1574,29 @@ Press 'h' or '?' keys for complete documentation."
   (interactive)
   (when (tabulated-list-get-id)
     (let ((trackid (tabulated-list-get-id))
-          (tracks-ids (mapcar #'(lambda (s) (plist-get s 'id)) lms--ui-tracks-lst)))
+          (tracks-ids (mapcar #'(lambda (s) (alist-get 'id s)) lms--ui-tracks-lst)))
       (lms-ui-track-info trackid tracks-ids))))
 
 (defun lms-ui-tl-to-playlist ()
-  "Select and execute action for track list."
+  "Add song to track list."
   (interactive)
   (when (tabulated-list-get-id)
-    (let ((cmd (lms--ask-playlistcontrol-action)))
-      (lms--playlist-control cmd (format "track_id:%s" (tabulated-list-get-id)))
-      (kill-buffer))))
+    (lms-playlistcontrol-action (format "track_id:%s" (tabulated-list-get-id)))
+    (kill-buffer)))
 
 (defun lms-ui-tl-all-to-playlist ()
-  "Select and execute action for all tracks in list."
+  "Add all songs to track list."
   (interactive)
   (when (tabulated-list-get-id)
-    (let ((cmd (lms--ask-playlistcontrol-action "Add all tracks to playlist? "))
-          (tracks (string-join (mapcar #'(lambda (x) (plist-get x 'id)) lms--ui-tracks-lst) ",")))
-      (lms--playlist-control cmd (format "track_id:%s" tracks))
+    (let ((tracks (string-join (mapcar #'(lambda (x) (number-to-string (alist-get 'id x))) lms--ui-tracks-lst) ",")))
+      (lms-playlistcontrol-action (format "track_id:%s" tracks) "Add all tracks to playlist?")
       (kill-buffer))))
 
 (defun lms-ui-tl-by-artist ()
   "Browse list of albums by artist of track under cursor."
   (interactive)
   (when (tabulated-list-get-id)
-    (let* ((artist (lms--unhex-encode (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                                           lms--ui-tracks-lst)
-                                                 'artist)))
+    (let* ((artist (alist-get 'artist (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-tracks-lst)))
            (artistid (lms-get-artist-id-from-name artist))
            (buftitle (format "*LMS: Albums by artist %s*" artist))
            (lst (lms-get-albums-from-artistid artistid)))
@@ -1855,15 +1607,107 @@ Press 'h' or '?' keys for complete documentation."
   "Browse list of albums by year of track under cursor."
   (interactive)
   (when (tabulated-list-get-id)
-    (let* ((year (plist-get (seq-find #'(lambda (x) (string= (plist-get x 'id) (tabulated-list-get-id)))
-                                      lms--ui-tracks-lst)
-                            'year))
-           (buftitle (format "*LMS: Albums in year %s*" year))
+    (let* ((year (alist-get 'year (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-tracks-lst)))
+           (buftitle (format "*LMS: Albums in year %d*" year))
            (lst (lms-get-albums-from-year year)))
       (kill-buffer)
       (lms-ui-year-album-artist-list buftitle lst))))
 
+
+;;;;; Year - Album - Artist list
+(defvar lms-ui-year-album-artist-list-mode-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map tabulated-list-mode-map)
+    (define-key map [remap end-of-buffer]     '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap end-of-defun]      '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap forward-paragraph] '(lambda () (interactive) (goto-char (max-char)) (forward-line -1)))
+    (define-key map [remap next-line]         '(lambda () (interactive) (forward-line 1) (when (eobp) (forward-line -1))))
+    (define-key map (kbd "Y")                 'lms-ui-yaal-by-year)
+    (define-key map (kbd "A")                 'lms-ui-yaal-by-artist)
+    (define-key map (kbd "L")                 'lms-ui-yaal-by-album)
+    (define-key map (kbd "RET")               'lms-ui-yaal-by-album)
+    (define-key map (kbd "p")                 'lms-ui-yaal-to-playlist)
+    ;; TODO: Add all entries to playlist?
+    ;; (define-key map (kbd "P")                 'lms-ui-yaal-all-to-playlist)
+    (define-key map (kbd "h")                 'lms-ui-playing-now-help)
+    (define-key map (kbd "?")                 'lms-ui-playing-now-help)
+    (define-key map (kbd "q")                 '(lambda () (interactive)
+                                                 (kill-buffer)
+                                                 (lms-ui-playing-now-refresh)))
+    map)
+  "Local keymap for `lms-ui-year-album-artist-list-mode' buffers.")
 
+(define-derived-mode lms-ui-year-album-artist-list-mode tabulated-list-mode "LMS Year-Artist-Album"
+  "Major mode for LMS Year-Album-Artist buffer.
+ Press 'h' or '?' keys for complete documentation."
+  (setq tabulated-list-format [("Year"     6   t :right-align nil)
+                               ("Album"    40  t :right-align nil)
+                               ("Artist"   0   t :right-align nil)])
+  (setq tabulated-list-padding 1)
+  (tabulated-list-init-header))
+
+(defun lms-ui-year-album-artist-list (buftitle lst)
+  "Year-Album-Artist list with BUFTITLE and LST entries."
+  (interactive)
+  (switch-to-buffer buftitle nil)
+  (setq-local buffer-read-only nil)
+  (erase-buffer)
+  (lms-ui-year-album-artist-list-mode)
+  (setq tabulated-list-entries
+        (mapcar #'(lambda (x)
+                    (list (alist-get 'id x)
+                          (vector
+                           (propertize (number-to-string (or (alist-get 'year x) 0)) 'face 'lms-year-face)
+                           (propertize (or (alist-get 'album x) "No album") 'face 'lms-album-face)
+                           (propertize (or (alist-get 'artist x) "No artist") 'face 'lms-artist-face))))
+                lst))
+  (setq-local lms--ui-yaal-lst lst)
+  (tabulated-list-print t)
+  (goto-char (point-min))
+  (hl-line-mode 1)
+  (setq-local cursor-type nil))
+
+(defun lms-ui-yaal-to-playlist ()
+  "Select and execute action for artist album list."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (lms-playlistcontrol-action (format "album_id:%s" (tabulated-list-get-id)))
+    (kill-buffer)))
+
+(defun lms-ui-yaal-by-artist ()
+  "Browse list of albums by artist of album under cursor."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (let* ((artist (alist-get 'artist (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-yaal-lst)))
+           (artistid (lms-get-artist-id-from-name artist))
+           (buftitle (format "*LMS: Albums by artist %s*" artist))
+           (lst (lms-get-albums-from-artistid artistid)))
+      (kill-buffer)
+      (lms-ui-year-album-artist-list buftitle lst))))
+
+(defun lms-ui-yaal-by-year ()
+  "Browse list of albums by year of album under cursor."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (let* ((year (alist-get 'year (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-yaal-lst)))
+           (buftitle (format "*LMS: Albums in year %d*" year))
+           (lst (lms-get-albums-from-year year)))
+      (kill-buffer)
+      (lms-ui-year-album-artist-list buftitle lst))))
+
+(defun lms-ui-yaal-by-album ()
+  "Browse list of tracks of album under cursor."
+  (interactive)
+  (when (tabulated-list-get-id)
+    (let* ((album (alist-get 'album (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-yaal-lst)))
+           (artist (alist-get 'artist (seq-find #'(lambda (x) (= (alist-get 'id x) (tabulated-list-get-id))) lms--ui-yaal-lst)))
+           (albumid (lms-get-album-id-from-name album artist))
+           (buftitle (format "*LMS: Tracks in album '%s'*" (lms-get-album-name-from-id albumid)))
+           (lst (lms-get-tracks-from-albumid albumid)))
+      (kill-buffer)
+      (lms-ui-tracks-list buftitle lst))))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (provide 'lms)
 ;;; lms.el ends here

@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna <inigoserna@gmx.com>
-#+DATE: Time-stamp: <2019-11-02 01:00:34 inigo>
+#+DATE: Time-stamp: <2020-06-16 19:34:30 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -10,8 +10,10 @@ It requires emacs version 25 or higher.
 
 More information on what a *squeezebox controller* is at https://inigo.katxi.org/blog/2017/07/31/lms_el.html.
 
-Quick instructions: customize some basic parameters 'lms-hostname', 'lms-telnet-port', 'lms-html-port', 'lms-username', 'lms-password' and run it with *lms-ui*.
+Quick instructions: customize some basic parameters such as 'lms-url' and run it with *lms* or *lms-ui*.
 From there, you could read complete documentation after pressing *h* key.
+You can also run *emacsclient -e "(lms-float)"* to display an independent small frame.
+
 
 Package should appear in [[https://melpa.org][MELPA repository]], and the code is in [[https://hg.serna.eu/emacs/lms][the code repository]] as well.
 
@@ -29,29 +31,21 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------------------+-----------|
-| Parameter                        | Description                                             | Default   |
-|----------------------------------+---------------------------------------------------------+-----------|
-| lms-hostname                     | Logitech Media Server hostname or ip                    | localhost |
-| lms-telnet-port                  | Logitech Media Server telnet port                       | 9090      |
-| lms-html-port                    | Logitech Media Server www port                          | 80        |
-| lms-username                     | Logitech Media Server username or nil                   | nil       |
-| lms-password                     | Logitech Media Server password or nil                   | nil       |
-| lms-default-player               | Name of default player                                  | nil  (1)  |
-| lms-ui-cover-width               | Cover image width                                       | 400  (2)  |
-| lms-ui-update-interval           | Time in seconds between UI updates                      | nil  (3)  |
-| lms-number-recent-albums         | Number of recent albums to show                         | 25        |
-| lms-number-random-albums         | Number of random albums to show                         | 25        |
-| lms-number-random-songs          | Number of random songs to show                          | 50        |
-| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)  |
-| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)  |
-|----------------------------------+---------------------------------------------------------+-----------|
+|----------------------------------+---------------------------------------------------------+------------------------|
+| Parameter                        | Description                                             | Default                |
+|----------------------------------+---------------------------------------------------------+------------------------|
+| lms-url                          | Logitech Media Server hostname or ip and port           | http://lms_server:9000 |
+| lms-default-player               | Name of default player                                  | nil  (1)               |
+| lms-ui-cover-width               | Cover image width                                       | 500  (2)               |
+| lms-ui-update-interval           | Time in seconds between UI updates                      | 1    (3)               |
+| lms-number-recent-albums         | Number of recent albums to show                         | 25                     |
+| lms-number-random-albums         | Number of random albums to show                         | 25                     |
+| lms-number-random-songs          | Number of random songs to show                          | 50                     |
+|----------------------------------+---------------------------------------------------------+------------------------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
 (3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
-(4) Enabling *lms-use-helm-in-library-browsing* could make artists and albums retrieval slow. Thus *ido* is used by default.
-(5) If you use helm and items selection is slow set a smaller number for *lms-helm-candidate-number-limit*: 1000, 250, 100…
 ** Faces
 The colors and font attributes of text can be customized in some views:
 |-------------------+----------------+---------------------|
@@ -71,9 +65,10 @@ Main window showing information about current track and player status.
 The actions triggered by pressing keys refer to the current track.
 ** Key bindings
 |------------+--------------------------------|
-| Ctrl-w     | change player power state      |
 | Ctrl-p     | select player                  |
+| Ctrl-w     | change player power state      |
 | Ctrl-r     | change track rating            |
+| Ctrl-v     | set volume                     |
 | <space>    | toggle play/pause              |
 | P          | play                           |
 | S          | stop playing                   |
@@ -87,8 +82,8 @@ The actions triggered by pressing keys refer to the current track.
 | g          | update window contents         |
 | i          | display track information      |
 | l          | display playlist               |
-| T          | show all tracks of album       |
 | A          | show all albums by artist      |
+| L          | show all tracks of album       |
 | Y          | show all albums of this year   |
 | M          | browse music libray            |
 | h, ?       | show this documentation        |
@@ -107,6 +102,18 @@ Previous/next track only works when *Track information* window was called from a
 | q          | close window            |
 |------------+-------------------------|
 
+* Players list
+Players list.
+** Key bindings
+|--------------+------------------------------------|
+| <up>, <down> | move cursor                        |
+| <enter>      | select player and close window     |
+| <space>      | toggle player play/pause           |
+| Ctrl-w       | toggle player power state          |
+| h, ?         | show this documentation            |
+| q            | close window                       |
+|--------------+------------------------------------|
+
 * Playlist
 Playlist view.
 The actions triggered by pressing keys refer to the track under cursor.
@@ -121,8 +128,8 @@ The actions triggered by pressing keys refer to the track under cursor.
 | c u          | remove tracks from start to cursor |
 | c f          | remove tracks from cursor to end   |
 | g            | update window contents             |
-| T            | show all tracks of album           |
 | A            | show all albums by artist          |
+| L            | show all tracks of album           |
 | Y            | show all albums of this year       |
 | h, ?         | show this documentation            |
 | q            | close window                       |
@@ -151,7 +158,7 @@ The actions triggered by pressing keys refer to the track under cursor.
 | <enter>, i   | display track information    |
 | A            | show all albums by artist    |
 | Y            | show all albums of this year |
-| p            | add songs to playlist        |
+| p            | add song to playlist         |
 | P            | add all songs to playlist    |
 | h, ?         | show this documentation      |
 | q            | close window                 |
