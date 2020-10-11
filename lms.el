@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017-20 Free Software Foundation, Inc.
-;; Time-stamp: <2020-06-16 20:10:02 inigo>
+;; Time-stamp: <2020-10-10 18:55:50 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
@@ -52,8 +52,9 @@
 
 
 ;;; Code:
-(require 'org)
 (require 'json)
+(require 'org)
+(require 'url)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
