@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017-20 Free Software Foundation, Inc.
-;; Time-stamp: <2020-12-13 19:28:37 inigo>
+;; Time-stamp: <2020-12-13 21:42:17 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
@@ -98,6 +98,12 @@ Note that small values could freeze your Emacs use while refreshing window."
 (defcustom lms-number-random-songs 50
   "Number of random songs to show."
   :type 'integer
+  :group 'lms)
+
+(defcustom lms-set-rating-function 'lms--set-rating-with-trackstat
+  "Function to use to set rating."
+  :type '(choice (const :tag "Use TrackStat plugin" lms--set-rating-with-trackstat)
+                 (const :tag "use RatingsLight plugin" lms--set-rating-with-ratingslight))
   :group 'lms)
 
 
@@ -208,38 +214,44 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------------------+------------------------|
-| Parameter                        | Description                                             | Default                |
-|----------------------------------+---------------------------------------------------------+------------------------|
-| lms-url                          | Logitech Media Server hostname or ip and port           | http://lms_server:9000 |
-| lms-default-player               | Name of default player                                  | nil  (1)               |
-| lms-ui-cover-width               | Cover image width                                       | 500  (2)               |
-| lms-ui-update-interval           | Time in seconds between UI updates                      | 1    (3)               |
-| lms-number-recent-albums         | Number of recent albums to show                         | 25                     |
-| lms-number-random-albums         | Number of random albums to show                         | 25                     |
-| lms-number-random-songs          | Number of random songs to show                          | 50                     |
-| lms-use-helm-in-library-browsing | Use helm to select item in library browsing             | nil  (4)               |
-| lms-helm-candidate-number-limit  | Maximum number of candidates to show in items selection | 9999 (5)               |
-|----------------------------------+---------------------------------------------------------+------------------------|
+|--------------------------+-----------------------------------------------+------------------------------------|
+| Parameter                | Description                                   | Default                            |
+|--------------------------+-----------------------------------------------+------------------------------------|
+| lms-url                  | Logitech Media Server hostname or ip and port | http://lms_server:9000             |
+| lms-default-player       | Name of default player                        | nil  (1)                           |
+| lms-ui-cover-width       | Cover image width                             | 500  (2)                           |
+| lms-ui-update-interval   | Time in seconds between UI updates            | 1    (3)                           |
+| lms-number-recent-albums | Number of recent albums to show               | 25                                 |
+| lms-number-random-albums | Number of random albums to show               | 25                                 |
+| lms-number-random-songs  | Number of random songs to show                | 50                                 |
+| lms-set-rating-function  | Function to use to set song rating            | lms--set-rating-with-trackstat (4) |
+|--------------------------+-----------------------------------------------+------------------------------------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
 (3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
-(4) Enabling *lms-use-helm-in-library-browsing* could make artists and albums retrieval slow. Thus *ido* is used by default.
-(5) If you use helm and items selection is slow set a smaller number for *lms-helm-candidate-number-limit*: 1000, 250, 100…
+(4) LMS does not have any means to set the rating of a song by itself, so it depends on an external plugin.
+    TrackStat (function *lms--set-rating-with-trackstat*) is a popular one, and RatingsLight (function *lms--set-rating-with-ratingslight*) is another option.
 ** Faces
 The colors and font attributes of text can be customized in some views:
-|-------------------+----------------+---------------------|
-| Face name         | Description    | Default             |
-|-------------------+----------------+---------------------|
-| lms-playing-face  | Playing symbol | DarkTurquoise, bold |
-| lms-title-face    | Song title     | SlateGray, italic   |
-| lms-artist-face   | Artist         | RosyBrown, bold     |
-| lms-year-face     | Song year      | SteelBlue           |
-| lms-album-face    | Album          | CadetBlue           |
-| lms-tracknum-face | Track number   | gray40              |
-| lms-duration-face | Song duration  | gray60              |
-|-------------------+----------------+---------------------|
+|----------------------------+-------------------------------+---------------------|
+| Face name                  | Description                   | Default             |
+|----------------------------+-------------------------------+---------------------|
+| lms-playing-face           | Playing symbol                | DarkTurquoise, bold |
+| lms-title-face             | Song title                    | SlateGray, italic   |
+| lms-artist-face            | Artist                        | RosyBrown, bold     |
+| lms-year-face              | Song year                     | SteelBlue           |
+| lms-album-face             | Album                         | CadetBlue           |
+| lms-tracknum-face          | Track number                  | gray40              |
+| lms-duration-face          | Song duration                 | gray60              |
+| lms-players-selected-face  | Selected icon in players list | SteelBlue           |
+| lms-players-isplaying-face | Isplaying in players list     | RosyBrown           |
+| lms-players-name-face      | Player name in players list   | CadetBlue           |
+| lms-players-model-face     | Player model in players list  | SlateGray           |
+| lms-players-playerid-face  | Player id in players list     | gray60              |
+| lms-players-ip-face        | Player IP in players list     | gray40              |
+| lms-players-power-face     | Ispower in players list       | Maroon              |
+|----------------------------+-------------------------------+---------------------|
 
 * Playing now
 Main window showing information about current track and player status.
@@ -585,9 +597,18 @@ Must be a string.  Can be a relative number such as \"-1\"."
 
 ;;;;; Library
 ;;;;;; Tracks
-(defun lms-track-set-rating (trackid rating)
-  "Set RATING (percent) to TRACKID."
+(defun lms--set-rating-with-trackstat (trackid rating)
+  "Set RATING (percent) to TRACKID using TrackStat plugin."
   (lms--cmd (format "trackstat setratingpercent %d %s" trackid rating)))
+
+(defun lms--set-rating-with-ratingslight (trackid rating)
+  "Set RATING (percent) to TRACKID using RatingsLight plugin."
+  (let ((rating_as5 (/ (string-to-number rating) 20.0)))
+    (lms--cmd (format "ratingslight setrating track_id:%d rating:%1.1f" trackid rating_as5))))
+
+(defun lms-track-set-rating (trackid rating)
+  "Set RATING (percent) to TRACKID using plugin defined in settings."
+  (funcall lms-set-rating-function trackid rating))
 
 (defun lms-get-current-track-albumid ()
   "Get current track albumid."

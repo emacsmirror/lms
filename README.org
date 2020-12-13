@@ -1,6 +1,6 @@
 #+TITLE: lms.el Documentation
 #+AUTHOR: Iñigo Serna <inigoserna@gmx.com>
-#+DATE: Time-stamp: <2020-06-16 19:34:30 inigo>
+#+DATE: Time-stamp: <2020-12-13 21:41:43 inigo>
 
 * Introduction
 This is an *emacs* frontend to interact with Squeezebox Server / Logitech Media Server.
@@ -31,34 +31,44 @@ It is not aimed to be a complete controller, as it can't - and won't - manage ex
 
 * Configuration
 There are some parameters you could customize:
-|----------------------------------+---------------------------------------------------------+------------------------|
-| Parameter                        | Description                                             | Default                |
-|----------------------------------+---------------------------------------------------------+------------------------|
-| lms-url                          | Logitech Media Server hostname or ip and port           | http://lms_server:9000 |
-| lms-default-player               | Name of default player                                  | nil  (1)               |
-| lms-ui-cover-width               | Cover image width                                       | 500  (2)               |
-| lms-ui-update-interval           | Time in seconds between UI updates                      | 1    (3)               |
-| lms-number-recent-albums         | Number of recent albums to show                         | 25                     |
-| lms-number-random-albums         | Number of random albums to show                         | 25                     |
-| lms-number-random-songs          | Number of random songs to show                          | 50                     |
-|----------------------------------+---------------------------------------------------------+------------------------|
+|--------------------------+-----------------------------------------------+------------------------------------|
+| Parameter                | Description                                   | Default                            |
+|--------------------------+-----------------------------------------------+------------------------------------|
+| lms-url                  | Logitech Media Server hostname or ip and port | http://lms_server:9000             |
+| lms-default-player       | Name of default player                        | nil  (1)                           |
+| lms-ui-cover-width       | Cover image width                             | 500  (2)                           |
+| lms-ui-update-interval   | Time in seconds between UI updates            | 1    (3)                           |
+| lms-number-recent-albums | Number of recent albums to show               | 25                                 |
+| lms-number-random-albums | Number of random albums to show               | 25                                 |
+| lms-number-random-songs  | Number of random songs to show                | 50                                 |
+| lms-set-rating-function  | Function to use to set song rating            | lms--set-rating-with-trackstat (4) |
+|--------------------------+-----------------------------------------------+------------------------------------|
 Notes:
 (1) If *lms-default-player* is not defined or a player with that name does not exist, it will ask for one at start.
 (2) It's recomendable not to change *lms-ui-cover-width*.
 (3) Note that small values in *lms-ui-update-interval* could freeze your Emacs use while refreshing window.
+(4) LMS does not have any means to set the rating of a song by itself, so it depends on an external plugin.
+    TrackStat (function *lms--set-rating-with-trackstat*) is a popular one, and RatingsLight (function *lms--set-rating-with-ratingslight*) is another option.
 ** Faces
 The colors and font attributes of text can be customized in some views:
-|-------------------+----------------+---------------------|
-| Face name         | Description    | Default             |
-|-------------------+----------------+---------------------|
-| lms-playing-face  | Playing symbol | DarkTurquoise, bold |
-| lms-title-face    | Song title     | SlateGray, italic   |
-| lms-artist-face   | Artist         | RosyBrown, bold     |
-| lms-year-face     | Song year      | SteelBlue           |
-| lms-album-face    | Album          | CadetBlue           |
-| lms-tracknum-face | Track number   | gray40              |
-| lms-duration-face | Song duration  | gray60              |
-|-------------------+----------------+---------------------|
+|----------------------------+-------------------------------+---------------------|
+| Face name                  | Description                   | Default             |
+|----------------------------+-------------------------------+---------------------|
+| lms-playing-face           | Playing symbol                | DarkTurquoise, bold |
+| lms-title-face             | Song title                    | SlateGray, italic   |
+| lms-artist-face            | Artist                        | RosyBrown, bold     |
+| lms-year-face              | Song year                     | SteelBlue           |
+| lms-album-face             | Album                         | CadetBlue           |
+| lms-tracknum-face          | Track number                  | gray40              |
+| lms-duration-face          | Song duration                 | gray60              |
+| lms-players-selected-face  | Selected icon in players list | SteelBlue           |
+| lms-players-isplaying-face | Isplaying in players list     | RosyBrown           |
+| lms-players-name-face      | Player name in players list   | CadetBlue           |
+| lms-players-model-face     | Player model in players list  | SlateGray           |
+| lms-players-playerid-face  | Player id in players list     | gray60              |
+| lms-players-ip-face        | Player IP in players list     | gray40              |
+| lms-players-power-face     | Ispower in players list       | Maroon              |
+|----------------------------+-------------------------------+---------------------|
 
 * Playing now
 Main window showing information about current track and player status.
