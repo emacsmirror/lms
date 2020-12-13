@@ -1,11 +1,11 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017-20 Free Software Foundation, Inc.
-;; Time-stamp: <2020-10-10 18:55:50 inigo>
+;; Time-stamp: <2020-12-13 19:28:37 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
-;; Version: 1.00
+;; Version: 1.1
 ;; Package-Requires: ((emacs "25.1"))
 ;; Keywords: multimedia
 
@@ -603,10 +603,10 @@ Must be a string.  Can be a relative number such as \"-1\"."
 
 (defun lms-get-tracks-from-albumid (albumid)
   "Get a list of tracks from ALBUMID.  Sorted by discnum, then by tracknum."
-  (seq-sort #'(lambda (x y) (let ((xdn (or (alist-get 'disc x) 0))
-                                  (xtn (or (alist-get 'tracknum x) 0))
-                                  (ydn (or (alist-get 'disc y) 0))
-                                  (ytn (or (alist-get 'tracknum y) 0)))
+  (seq-sort #'(lambda (x y) (let ((xdn (lms--ensure-number (alist-get 'disc x)))
+                                  (xtn (lms--ensure-number (alist-get 'tracknum x)))
+                                  (ydn (lms--ensure-number (alist-get 'disc y)))
+                                  (ytn (lms--ensure-number (alist-get 'tracknum y))))
                               (if (= xdn ydn)
                                   (< xtn ytn)
                                 (< xdn ydn))))
@@ -712,8 +712,6 @@ If VLIBID is specified use only that virtual library."
 
 (defun lms--format-rating (rating)
   "Format RATING to human readable form."
-  (when (stringp rating)
-    (setq rating (string-to-number rating)))
   (let ((r (/ rating 10)))
     (concat (string-join (make-vector r "★")) (string-join (make-vector (- 10 r) "☆")))))
 
@@ -751,6 +749,18 @@ If VLIBID is specified use only that virtual library."
     (0 "No shuffle")
     (1 "Shuffle by song")
     (2 "Shuffle by album")))
+
+(defun lms--ensure-string (anumber)
+  "Return a string from ANUMBER."
+  (if (stringp anumber)
+      anumber
+    (number-to-string (or anumber 0))))
+
+(defun lms--ensure-number (anumber)
+  "Return ANUMBER."
+  (if (numberp anumber)
+      anumber
+    (string-to-number (or anumber "0"))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -903,7 +913,7 @@ Press 'h' or '?' keys for complete documentation")
               (format "%s  -  %s  -  %s"
                       (propertize (format "%s/%s" (lms--format-time (or time 0)) (lms--format-time (or .duration 0))) 'face '(:foreground "Maroon"))
                       (propertize (format "%d/%d" (or pl_cur_index 0) (or pl_total 0)) 'face '(:foreground "Gray40"))
-                      (propertize (lms--format-rating (or .rating 0)) 'face '(:foreground "Orange")))
+                      (propertize (lms--format-rating (lms--ensure-number .rating)) 'face '(:foreground "Orange")))
               (propertize "\n\n" 'face '(:height 0.5))))
     ; cover image
     (when window-system
@@ -1208,8 +1218,8 @@ Optional TRACKS-IDS variable is used to identify prev/next song."
         (pcase k
           ('id (setq id v))
           ('duration (setq v (lms--format-time v)))
-          ('rating (setq v (lms--format-rating v)))
-          ('filesize (setq v (lms--format-filesize v)))
+          ('rating (setq v (lms--format-rating (lms--ensure-number v))))
+          ('filesize (setq v (lms--format-filesize (lms--ensure-number v))))
           ('url (setq v (url-unhex-string v))))
         (insert (propertize (format "%s: " (capitalize (symbol-name k))) 'face '(:weight bold)))
         (insert (format "%s\n" v))))
@@ -1233,7 +1243,7 @@ Optional TRACKS-IDS variable is used to identify prev/next song."
       (when (search-forward "Rating: " nil nil)
         (let ((inhibit-read-only t))
           (kill-line)
-          (insert (lms--format-rating (string-to-number rating))))))))
+          (insert (lms--format-rating (lms--ensure-number rating))))))))
 
 (defun lms-ui-track-info-prev ()
   "Show previous track information."
@@ -1407,9 +1417,9 @@ Press 'h' or '?' keys for complete documentation."
                              (propertize (if (= (alist-get (intern "playlist index") tr) idx) "♫" " ") 'face 'lms-playing-face)
                              (propertize (or (alist-get 'title tr) "No title") 'face 'lms-title-face)
                              (propertize (or (alist-get 'artist tr) "No artist") 'face 'lms-artist-face)
-                             (propertize (number-to-string (or (alist-get 'year tr) 0)) 'face 'lms-year-face)
+                             (propertize (lms--ensure-string  (alist-get 'year tr)) 'face 'lms-year-face)
                              (propertize (or (alist-get 'album tr) "No album") 'face 'lms-album-face)
-                             (propertize (number-to-string (or (alist-get 'tracknum tr) 0)) 'face 'lms-tracknum-face)
+                             (propertize (lms--ensure-string (alist-get 'tracknum tr)) 'face 'lms-tracknum-face)
                              (propertize (lms--format-time (or (alist-get 'duration tr) 0)) 'face 'lms-duration-face))))
                   tracks))
       (setq-local lms--ui-pl-tracks tracks))
@@ -1557,10 +1567,10 @@ Press 'h' or '?' keys for complete documentation."
         (mapcar #'(lambda (x)
                     (list (alist-get 'id x)
                           (vector
-                           (propertize (number-to-string (or (alist-get 'tracknum x) 0)) 'face 'lms-tracknum-face)
+                           (propertize (lms--ensure-string (alist-get 'tracknum x)) 'face 'lms-tracknum-face)
                            (propertize (or (alist-get 'title x) "No title") 'face 'lms-title-face)
                            (propertize (or (alist-get 'artist x) "No artist") 'face 'lms-artist-face)
-                           (propertize (number-to-string (or (alist-get 'year x) 0)) 'face 'lms-year-face)
+                           (propertize (lms--ensure-string (alist-get 'year x)) 'face 'lms-year-face)
                            (propertize (or (alist-get 'album x) "No album") 'face 'lms-album-face)
                            (propertize (lms--format-time (alist-get 'duration x)) 'face 'lms-duration-face))))
                 lst))
@@ -1658,7 +1668,7 @@ Press 'h' or '?' keys for complete documentation."
         (mapcar #'(lambda (x)
                     (list (alist-get 'id x)
                           (vector
-                           (propertize (number-to-string (or (alist-get 'year x) 0)) 'face 'lms-year-face)
+                           (propertize (lms--ensure-string (alist-get 'year x)) 'face 'lms-year-face)
                            (propertize (or (alist-get 'album x) "No album") 'face 'lms-album-face)
                            (propertize (or (alist-get 'artist x) "No artist") 'face 'lms-artist-face))))
                 lst))
