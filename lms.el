@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017-20 Free Software Foundation, Inc.
-;; Time-stamp: <2020-12-13 21:42:17 inigo>
+;; Time-stamp: <2020-12-14 19:50:15 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
@@ -612,11 +612,11 @@ Must be a string.  Can be a relative number such as \"-1\"."
 
 (defun lms-get-current-track-albumid ()
   "Get current track albumid."
-  (alist-get 'album_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:e")))))
+  (lms--ensure-number (alist-get 'album_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:e"))))))
 
 (defun lms-get-current-track-artistid ()
   "Get current track artistid."
-  (alist-get 'artist_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:s")))))
+  (lms--ensure-number (alist-get 'artist_id (cadr (assq 'playlist_loop (lms--cmd "status - 1 tags:s"))))))
 
 (defun lms-get-current-track-year ()
   "Get current track year."
@@ -640,7 +640,7 @@ Must be a string.  Can be a relative number such as \"-1\"."
 
 (defun lms-get-artist-id-from-name (artistname)
   "Get artist id from ARTISTNAME."
-  (alist-get 'id (cadr (assq 'artists_loop (lms--cmd (format "artists 0 100 search:'%s'" artistname))))))
+  (lms--ensure-number (alist-get 'id (cadr (assq 'artists_loop (lms--cmd (format "artists 0 100 search:'%s'" artistname)))))))
 
 (defun lms-get-artists (&optional max vlibid)
   "Get a list of 5000 or MAX artists.
