@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-20 Free Software Foundation, Inc.
-;; Time-stamp: <2020-12-14 19:50:15 inigo>
+;; Copyright (C) 2017-21 Free Software Foundation, Inc.
+;; Time-stamp: <2021-07-24 14:49:23 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
@@ -448,13 +448,15 @@ QUERY is a string."
          (url-request-method "POST")
          (url-request-extra-headers '(("Content-Type" . "application/json")))
          (url-request-data (encode-coding-string
-                            (json-encode-alist `[(method . "slim.request") (params . [,playerid ,(lms--split-string query)])])
+                            (json-encode-alist `((method . "slim.request") (params . [,playerid ,(lms--split-string query)])))
                             'utf-8))
-         (response (with-current-buffer (url-retrieve-synchronously (concat lms-url "/jsonrpc.js") t t 1)
+         (buf (url-retrieve-synchronously (concat lms-url "/jsonrpc.js") t t 1))
+         (response (with-current-buffer buf
                      (goto-char (point-min))
                      (re-search-forward "^$")
                      (delete-region (point) (point-min))
                      (decode-coding-string (buffer-string) 'utf-8))))
+    (kill-buffer buf)
     (unless (string= "" response)
       (alist-get 'result (json-read-from-string response)))))
 
