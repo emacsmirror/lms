@@ -450,7 +450,7 @@ QUERY is a string."
          (url-request-data (encode-coding-string
                             (json-encode-alist `((method . "slim.request") (params . [,playerid ,(lms--split-string query)])))
                             'utf-8))
-         (buf (url-retrieve-synchronously (concat lms-url "/jsonrpc.js") t t 1))
+         (buf (url-retrieve-synchronously (concat lms-url "/jsonrpc.js") t t 10))
          (response (with-current-buffer buf
                      (goto-char (point-min))
                      (re-search-forward "^$")
