@@ -1,7 +1,7 @@
 ;;; lms.el --- Squeezebox / Logitech Media Server frontend    -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2017-21 Free Software Foundation, Inc.
-;; Time-stamp: <2021-07-24 14:49:23 inigo>
+;; Time-stamp: <2021-08-20 23:52:36 inigo>
 
 ;; Author: Iñigo Serna <inigoserna@gmx.com>
 ;; URL: https://hg.serna.eu/emacs/lms
@@ -1263,7 +1263,7 @@ Optional TRACKS-IDS variable is used to identify prev/next song."
     (when rating
       (lms-track-set-rating lms--ui-track-info-trackid rating)
       (goto-char (point-min))
-      (when (search-forward "Rating: " nil nil)
+      (when (search-forward "Rating: " nil t)
         (let ((inhibit-read-only t))
           (kill-line)
           (insert (lms--format-rating (lms--ensure-number rating))))))))
